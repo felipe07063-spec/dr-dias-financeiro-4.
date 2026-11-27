@@ -1251,10 +1251,208 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   .assistant-input .primary-btn { width: 100%; }
   .app-footer { flex-direction: column; text-align: center; }
   .bills-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
+
 @media (max-width: 390px) {
   .expense-category-grid { grid-template-columns: 1fr 1fr; }
   .stat-value { font-size: 14px; }
   .page-heading h1 { font-size: 21px; }
+}
+
+/* ===== DR DIAS - VAULT DESIGN ===== */
+
+:root {
+  --bg: #090d0b;
+  --panel: #101713;
+  --panel-2: #17221b;
+  --border: #26372c;
+  --green: #a5edb7;
+  --green-dark: #1b3926;
+}
+
+.main-area {
+  max-width: 1700px;
+  padding-top: 34px;
+}
+
+.sidebar {
+  background: #0b100d;
+  border-right-color: #1c2920;
+}
+
+.brandmark {
+  background: linear-gradient(145deg, #c2f5cd, #79c990);
+  box-shadow: 0 5px 25px #80d99b25;
+}
+
+.nav-item {
+  padding: 13px;
+  border-radius: 11px;
+  transition: background .2s, transform .2s;
+}
+
+.nav-item:hover {
+  transform: translateX(2px);
+}
+
+.nav-item.selected {
+  background: linear-gradient(100deg, #1c3323, #17251b);
+  box-shadow: inset 2px 0 #a5edb7;
+}
+
+.welcome-strip {
+  background:
+    radial-gradient(circle at 85% 20%, #315c3b55, transparent 35%),
+    linear-gradient(115deg, #17291d, #101a14);
+  border-color: #34523b;
+  padding: 30px;
+  min-height: 155px;
+}
+
+.welcome-strip h2 {
+  font-size: 23px;
+  letter-spacing: -.7px;
+}
+
+.welcome-mark {
+  font-size: 115px;
+  color: #b9edc51a;
+}
+
+.stat-card {
+  background: linear-gradient(145deg, #151e18, #0f1511);
+  border-color: #283a2e;
+  padding: 21px;
+  transition: border-color .2s, transform .2s;
+}
+
+.stat-card:hover,
+.surface:hover {
+  border-color: #405b46;
+}
+
+.stat-value {
+  font-size: 21px;
+  letter-spacing: -.8px;
+}
+
+.stat-symbol {
+  background: #203728;
+  color: #b7efc3;
+}
+
+.dashboard-grid {
+  gap: 17px;
+}
+
+.surface {
+  background: linear-gradient(145deg, #131b16, #101612);
+  border-color: #28382e;
+  border-radius: 16px;
+  transition: border-color .2s;
+}
+
+.surface-heading {
+  margin-bottom: 22px;
+}
+
+.surface-heading h3 {
+  font-size: 14px;
+}
+
+.category-emoji,
+.compact-icon,
+.transaction-icon {
+  background: #1c2b21;
+  border: 1px solid #2a4030;
+}
+
+.progress-track {
+  background: #26332a;
+  height: 6px;
+}
+
+.progress-fill {
+  background: linear-gradient(90deg, #65bd7d, #b0efbd);
+  box-shadow: 0 0 12px #8de3a344;
+}
+
+.quick-action {
+  background: linear-gradient(145deg, #151e18, #101612);
+  border-color: #2a3b30;
+  border-radius: 13px;
+  transition: .2s;
+}
+
+.quick-action:hover {
+  border-color: #6caa7b;
+  transform: translateY(-2px);
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, #b8efc4, #8ddba1);
+  border-color: #b8efc4;
+  box-shadow: 0 5px 18px #8cdda122;
+}
+
+.primary-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 7px 22px #8cdda133;
+}
+
+.field input,
+.field select,
+.assistant-input input {
+  background: #0b110d;
+  border-color: #2b3d31;
+  border-radius: 10px;
+}
+
+.expense-category-card {
+  background: linear-gradient(145deg, #151e18, #101612);
+  border-color: #293b2e;
+  border-radius: 15px;
+}
+
+.transaction-row {
+  padding: 15px 0;
+}
+
+.bill-row {
+  background: #121a15;
+  border-color: #2b3c30;
+  border-radius: 13px;
+}
+
+.page-heading h1 {
+  letter-spacing: -1px;
+}
+
+.period-pill {
+  background: #18251c;
+}
+
+.app-footer {
+  border-top: 1px solid #1d2a21;
+  margin-top: 28px;
+  padding-top: 20px;
+}
+
+@media (max-width: 760px) {
+  .welcome-strip {
+    min-height: 135px;
+    padding: 20px;
+  }
+
+  .welcome-strip h2 {
+    font-size: 18px;
+  }
+
+  .welcome-mark {
+    font-size: 75px;
+  }
+
+  .stat-card {
+    padding: 14px;
+  }
 }
 `;
