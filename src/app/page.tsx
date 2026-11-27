@@ -1024,7 +1024,7 @@ const styles = `
   --text: #26382d;
   --muted: #78877c;
   --green: #268653;
-  --green-dark: #e2f3e7;
+  --lime: #00ff00;
   --red: #c65b5b;
   --gold: #bd9140;
 }
