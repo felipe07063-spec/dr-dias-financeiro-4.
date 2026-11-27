@@ -1453,5 +1453,85 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   .stat-card {
     padding: 14px;
   }
+
+/* DR DIAS - TEMA CLARO */
+:root {
+  --bg: #F5F7F5;
+  --panel: #FFFFFF;
+  --panel-2: #E8F1EA;
+  --border: #E5EAE6;
+  --text: #25382C;
+  --muted: #7A857D;
+  --green: #39865A;
+  --green-dark: #E8F1EA;
+  --red: #D45D5D;
+  --gold: #B99145;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.sidebar,
+.surface,
+.stat-card,
+.expense-category-card,
+.quick-action,
+.bill-row,
+.wallet-mini {
+  background: #FFFFFF;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.welcome-strip,
+.family-card,
+.assistant-panel {
+  background: var(--panel-2);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.welcome-strip p,
+.family-card p,
+.assistant-panel p {
+  color: var(--muted);
+}
+
+.primary-btn,
+.mini-primary {
+  background: var(--green);
+  border-color: var(--green);
+  color: #FFFFFF;
+}
+
+.secondary-btn,
+.icon-action,
+.mobile-exit {
+  background: var(--panel-2);
+  border-color: var(--border);
+  color: var(--green);
+}
+
+.field input,
+.field select,
+.assistant-input input {
+  background: #FFFFFF;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.small-link,
+.text-btn {
+  color: var(--green);
+}
+
+.progress-track {
+  background: var(--border);
+}
+
+.progress-fill {
+  background: linear-gradient(90deg, #39865A, #8DBD9A);
 }
 `;
