@@ -1,8 +1,7 @@
+"use client";
 
-@media (max-width: 760px) {
-  .welcome-strip {
-    min-height: 135px;
-    padding: 20px;
+import { FormEvent, useEffect, useMemo, useState } from "react";
+
   }
 
   .welcome-strip h2 {
