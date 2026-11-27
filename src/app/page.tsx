@@ -35,7 +35,14 @@ type Profile = {
   email?: string;
 };
 
-type ViewId = "home" | "expenses" | "transactions" | "bills" | "history" | "assistant" | "family";
+type ViewId =
+  | "home"
+  | "expenses"
+  | "transactions"
+  | "bills"
+  | "history"
+  | "assistant"
+  | "family";
 
 const money = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -560,7 +567,12 @@ export default function Home() {
       )}. Há ${pendingBills.length} conta(s) futura(s) pendente(s) somando ${money(
         pendingTotal
       )}.`;
-    } else if (q.includes("econom") || q.includes("cortar") || q.includes("reduzir") || q.includes("maior")) {
+    } else if (
+      q.includes("econom") ||
+      q.includes("cortar") ||
+      q.includes("reduzir") ||
+      q.includes("maior")
+    ) {
       const byCategory = transactions
         .filter((t) => t.kind === "expense")
         .reduce((acc: Record<string, number>, t) => {
@@ -606,7 +618,7 @@ export default function Home() {
     return (
       <div className="page-heading">
         <div>
-          <div className="eyebrow">DR DIAS · EXECUTIVE FINANCE</div>
+          <div className="eyebrow">DR DIAS · EMERALD EXECUTIVE</div>
           <h1>{title}</h1>
           <p>{subtitle}</p>
         </div>
@@ -785,7 +797,7 @@ export default function Home() {
           <div className="brandmark">V</div>
           <div>
             <h1>DR DIAS</h1>
-            <p>EXECUTIVE LIME</p>
+            <p>ESMERALDA & BRANCO</p>
           </div>
         </div>
 
@@ -835,7 +847,7 @@ export default function Home() {
             <div className="brandmark">V</div>
             <div>
               <h1>DR DIAS</h1>
-              <p>EXECUTIVE LIME</p>
+              <p>ESMERALDA & BRANCO</p>
             </div>
           </div>
           <button
@@ -902,7 +914,7 @@ export default function Home() {
                 label="Saldo líquido"
                 value={money(netBalance)}
                 detail="Receitas menos despesas"
-                tone={netBalance >= 0 ? "lime-value" : "negative"}
+                tone={netBalance >= 0 ? "emerald-value" : "negative"}
                 symbol="◈"
               />
               <StatCard
@@ -1030,7 +1042,7 @@ export default function Home() {
                   setActiveView("transactions");
                 }}
               >
-                <span className="quick-icon lime-bg">↗</span>
+                <span className="quick-icon emerald-bg">↗</span>
                 <span>
                   <strong>Nova receita</strong>
                   <small>Registrar entrada</small>
@@ -1042,7 +1054,7 @@ export default function Home() {
                 className="quick-action"
                 onClick={() => setActiveView("bills")}
               >
-                <span className="quick-icon dark-lime-bg">▤</span>
+                <span className="quick-icon mint-bg">▤</span>
                 <span>
                   <strong>Contas futuras</strong>
                   <small>Agendar vencimentos</small>
@@ -1229,7 +1241,7 @@ export default function Home() {
                 </div>
                 <div className="mini-stat total-mini">
                   <span>Saldo líquido</span>
-                  <strong className={netBalance >= 0 ? "lime-value" : "negative"}>
+                  <strong className={netBalance >= 0 ? "emerald-value" : "negative"}>
                     {money(netBalance)}
                   </strong>
                 </div>
@@ -1521,7 +1533,7 @@ export default function Home() {
                         </div>
                         <div className="mini-stat total-mini">
                           <span>Resultado</span>
-                          <strong className={balance >= 0 ? "lime-value" : "negative"}>
+                          <strong className={balance >= 0 ? "emerald-value" : "negative"}>
                             {money(balance)}
                           </strong>
                         </div>
@@ -1600,7 +1612,7 @@ export default function Home() {
                 </div>
                 <div className="mini-stat total-mini">
                   <span>Código de convite</span>
-                  <strong className="lime-value">
+                  <strong className="emerald-value">
                     {walletMeta?.invite_code || "Disponível na carteira"}
                   </strong>
                 </div>
@@ -1631,24 +1643,25 @@ export default function Home() {
 
 const styles = `
   :root {
-    --bg-canvas: #f7fee7;
+    --bg-canvas: #f8fafc;
     --bg-surface: #ffffff;
-    --bg-soft: #f4f8eb;
-    --bg-elevated: #ecfccb;
+    --bg-soft: #f1f5f9;
+    --bg-emerald-soft: #ecfdf5;
+    --bg-mint-soft: #f0fdfa;
     --ink-primary: #0f172a;
-    --ink-secondary: #3f4a3c;
+    --ink-secondary: #334155;
     --ink-muted: #64748b;
-    --lime-primary: #84cc16;
-    --lime-vivid: #a3e635;
-    --lime-dark: #4d7c0f;
-    --lime-deep: #365314;
-    --lime-glow: rgba(132, 204, 22, 0.28);
-    --border-subtle: #d9f99d;
-    --border-card: #e5eed8;
+    --emerald-primary: #10b981;
+    --emerald-vivid: #34d399;
+    --emerald-dark: #059669;
+    --emerald-deep: #065f46;
+    --forest-dark: #15803d;
+    --mint-accent: #14b8a6;
+    --emerald-glow: rgba(16, 185, 129, 0.24);
+    --border-emerald: #a7f3d0;
+    --border-card: #e2e8f0;
     --danger: #dc2626;
     --danger-bg: #fef2f2;
-    --success: #4d7c0f;
-    --success-bg: #ecfccb;
   }
 
   * {
@@ -1677,19 +1690,19 @@ const styles = `
     justify-content: center;
     padding: 24px;
     background:
-      radial-gradient(circle at top right, rgba(163, 230, 53, 0.35), transparent 45%),
-      radial-gradient(circle at bottom left, rgba(132, 204, 22, 0.22), transparent 50%),
-      #f8faf5;
+      radial-gradient(circle at top right, rgba(16, 185, 129, 0.16), transparent 45%),
+      radial-gradient(circle at bottom left, rgba(20, 184, 166, 0.12), transparent 50%),
+      var(--bg-canvas);
   }
 
   .auth-card {
     width: 100%;
     max-width: 430px;
     background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-card);
     border-radius: 24px;
     padding: 32px;
-    box-shadow: 0 20px 50px rgba(54, 83, 20, 0.1);
+    box-shadow: 0 20px 45px rgba(15, 23, 42, 0.06);
   }
 
   .brand {
@@ -1706,9 +1719,9 @@ const styles = `
     place-items: center;
     font-weight: 900;
     font-size: 19px;
-    color: #0f172a;
-    background: linear-gradient(135deg, var(--lime-vivid), var(--lime-primary));
-    box-shadow: 0 8px 20px var(--lime-glow);
+    color: #ffffff;
+    background: linear-gradient(135deg, var(--emerald-primary), var(--forest-dark));
+    box-shadow: 0 8px 20px var(--emerald-glow);
   }
 
   .brand h1 {
@@ -1724,7 +1737,7 @@ const styles = `
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.12em;
-    color: var(--lime-dark);
+    color: var(--emerald-dark);
   }
 
   .auth-intro {
@@ -1737,7 +1750,7 @@ const styles = `
     font-weight: 800;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--lime-dark);
+    color: var(--emerald-dark);
   }
 
   .auth-intro h2 {
@@ -1778,7 +1791,7 @@ const styles = `
     width: 100%;
     padding: 12px 14px;
     border-radius: 12px;
-    border: 1px solid #d4dec6;
+    border: 1px solid var(--border-card);
     background: #ffffff;
     color: var(--ink-primary);
     font-size: 14px;
@@ -1790,8 +1803,8 @@ const styles = `
   .month-filter:focus,
   .chat-form input:focus {
     outline: none;
-    border-color: var(--lime-primary);
-    box-shadow: 0 0 0 3px var(--lime-glow);
+    border-color: var(--emerald-primary);
+    box-shadow: 0 0 0 3px var(--emerald-glow);
   }
 
   .primary-btn {
@@ -1800,9 +1813,9 @@ const styles = `
     padding: 13px 18px;
     font-size: 14px;
     font-weight: 800;
-    color: #0f172a;
-    background: linear-gradient(135deg, var(--lime-vivid), var(--lime-primary));
-    box-shadow: 0 8px 20px var(--lime-glow);
+    color: #ffffff;
+    background: linear-gradient(135deg, var(--emerald-primary), var(--emerald-dark));
+    box-shadow: 0 8px 20px var(--emerald-glow);
     cursor: pointer;
     transition: transform 0.12s ease, filter 0.15s ease;
   }
@@ -1818,13 +1831,13 @@ const styles = `
   }
 
   .secondary-btn {
-    border: 1px solid var(--lime-primary);
+    border: 1px solid var(--emerald-primary);
     border-radius: 12px;
     padding: 12px 16px;
     font-size: 14px;
     font-weight: 700;
-    color: var(--lime-deep);
-    background: var(--bg-elevated);
+    color: var(--emerald-deep);
+    background: var(--bg-emerald-soft);
     cursor: pointer;
   }
 
@@ -1837,7 +1850,7 @@ const styles = `
     width: 100%;
     background: none;
     border: none;
-    color: var(--lime-dark);
+    color: var(--emerald-dark);
     font-weight: 700;
     font-size: 13px;
     cursor: pointer;
@@ -1878,8 +1891,8 @@ const styles = `
   .sidebar {
     width: 268px;
     flex-shrink: 0;
-    background: #ffffff;
-    border-right: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border-card);
     padding: 24px 18px;
     display: flex;
     flex-direction: column;
@@ -1931,9 +1944,9 @@ const styles = `
   }
 
   .nav-item.selected {
-    background: var(--bg-elevated);
-    border-color: var(--lime-primary);
-    color: var(--lime-deep);
+    background: var(--bg-emerald-soft);
+    border-color: var(--border-emerald);
+    color: var(--emerald-deep);
     font-weight: 800;
   }
 
@@ -1948,7 +1961,7 @@ const styles = `
     width: 7px;
     height: 7px;
     border-radius: 999px;
-    background: var(--lime-primary);
+    background: var(--emerald-primary);
   }
 
   .sidebar-bottom {
@@ -1966,8 +1979,8 @@ const styles = `
     gap: 10px;
     padding: 10px 12px;
     border-radius: 14px;
-    background: var(--bg-soft);
-    border: 1px solid var(--border-subtle);
+    background: var(--bg-emerald-soft);
+    border: 1px solid var(--border-emerald);
   }
 
   .wallet-mini-icon {
@@ -1976,8 +1989,8 @@ const styles = `
     border-radius: 10px;
     display: grid;
     place-items: center;
-    background: var(--lime-vivid);
-    color: #0f172a;
+    background: var(--emerald-primary);
+    color: #ffffff;
     font-weight: 800;
   }
 
@@ -1990,7 +2003,7 @@ const styles = `
   .wallet-mini span {
     display: block;
     font-size: 11px;
-    color: var(--ink-muted);
+    color: var(--emerald-dark);
   }
 
   .online-dot {
@@ -1998,15 +2011,15 @@ const styles = `
     width: 9px;
     height: 9px;
     border-radius: 999px;
-    background: var(--lime-primary);
-    box-shadow: 0 0 0 3px var(--lime-glow);
+    background: var(--emerald-primary);
+    box-shadow: 0 0 0 3px var(--emerald-glow);
   }
 
   .logout-btn {
     width: 100%;
     padding: 10px 12px;
     border-radius: 12px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-card);
     background: #ffffff;
     color: var(--ink-secondary);
     font-weight: 700;
@@ -2060,8 +2073,8 @@ const styles = `
     gap: 8px;
     padding: 9px 14px;
     border-radius: 999px;
-    background: #ffffff;
-    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-card);
     font-size: 13px;
     font-weight: 700;
     color: var(--ink-primary);
@@ -2073,8 +2086,8 @@ const styles = `
     border-radius: 999px;
     display: grid;
     place-items: center;
-    background: var(--lime-vivid);
-    color: #0f172a;
+    background: var(--emerald-primary);
+    color: #ffffff;
     font-size: 11px;
     font-weight: 900;
   }
@@ -2086,8 +2099,8 @@ const styles = `
     gap: 20px;
     padding: 24px 28px;
     border-radius: 22px;
-    background: linear-gradient(125deg, #ffffff 0%, #ecfccb 65%, #d9f99d 100%);
-    border: 1px solid var(--lime-primary);
+    background: linear-gradient(125deg, #ffffff 0%, var(--bg-emerald-soft) 70%, var(--bg-mint-soft) 100%);
+    border: 1px solid var(--border-emerald);
     margin-bottom: 28px;
   }
 
@@ -2112,9 +2125,8 @@ const styles = `
     place-items: center;
     font-size: 26px;
     font-weight: 900;
-    color: #0f172a;
-    background: var(--lime-vivid);
-    border: 2px solid var(--lime-dark);
+    color: #ffffff;
+    background: linear-gradient(135deg, var(--emerald-primary), var(--forest-dark));
     flex-shrink: 0;
   }
 
@@ -2145,9 +2157,9 @@ const styles = `
   .period-pill {
     padding: 6px 12px;
     border-radius: 999px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--lime-primary);
-    color: var(--lime-deep);
+    background: var(--bg-emerald-soft);
+    border: 1px solid var(--border-emerald);
+    color: var(--emerald-deep);
     font-size: 11px;
     font-weight: 800;
     letter-spacing: 0.08em;
@@ -2183,8 +2195,8 @@ const styles = `
     border-radius: 9px;
     display: grid;
     place-items: center;
-    background: var(--bg-elevated);
-    color: var(--lime-dark);
+    background: var(--bg-emerald-soft);
+    color: var(--emerald-dark);
     font-weight: 800;
   }
 
@@ -2200,9 +2212,9 @@ const styles = `
     color: var(--ink-muted);
   }
 
-  .lime-value,
+  .emerald-value,
   .positive {
-    color: var(--lime-dark);
+    color: var(--emerald-dark);
   }
 
   .negative {
@@ -2250,7 +2262,7 @@ const styles = `
   .small-link {
     background: none;
     border: none;
-    color: var(--lime-dark);
+    color: var(--emerald-dark);
     font-weight: 800;
     font-size: 13px;
     cursor: pointer;
@@ -2281,14 +2293,14 @@ const styles = `
     width: 100%;
     height: 8px;
     border-radius: 999px;
-    background: #eef5e2;
+    background: var(--bg-soft);
     overflow: hidden;
   }
 
   .progress-fill {
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--lime-primary), var(--lime-vivid));
+    background: linear-gradient(90deg, var(--emerald-primary), var(--mint-accent));
   }
 
   .compact-list,
@@ -2306,8 +2318,8 @@ const styles = `
     gap: 12px;
     padding: 12px 14px;
     border-radius: 14px;
-    background: var(--bg-soft);
-    border: 1px solid #e7f0d8;
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-card);
   }
 
   .compact-icon,
@@ -2317,8 +2329,8 @@ const styles = `
     border-radius: 12px;
     display: grid;
     place-items: center;
-    background: #ffffff;
-    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-card);
     font-size: 17px;
     flex-shrink: 0;
   }
@@ -2358,8 +2370,8 @@ const styles = `
     width: 32px;
     height: 32px;
     border-radius: 10px;
-    border: 1px solid #d4dec6;
-    background: #ffffff;
+    border: 1px solid var(--border-card);
+    background: var(--bg-surface);
     color: var(--ink-primary);
     font-weight: 700;
     cursor: pointer;
@@ -2374,12 +2386,17 @@ const styles = `
   .pay-btn {
     padding: 7px 12px;
     border-radius: 10px;
-    border: 1px solid var(--lime-dark);
-    background: var(--lime-vivid);
-    color: #0f172a;
+    border: 1px solid var(--emerald-primary);
+    background: var(--bg-emerald-soft);
+    color: var(--emerald-deep);
     font-weight: 800;
     font-size: 12px;
     cursor: pointer;
+  }
+
+  .pay-btn:hover {
+    background: var(--emerald-primary);
+    color: #ffffff;
   }
 
   .quick-actions {
@@ -2395,7 +2412,7 @@ const styles = `
     gap: 14px;
     padding: 16px 18px;
     border-radius: 18px;
-    background: #ffffff;
+    background: var(--bg-surface);
     border: 1px solid var(--border-card);
     text-align: left;
     cursor: pointer;
@@ -2403,7 +2420,7 @@ const styles = `
   }
 
   .quick-action:hover {
-    border-color: var(--lime-primary);
+    border-color: var(--emerald-primary);
     transform: translateY(-1px);
   }
 
@@ -2421,7 +2438,7 @@ const styles = `
 
   .quick-action b {
     margin-left: auto;
-    color: var(--lime-dark);
+    color: var(--emerald-dark);
   }
 
   .quick-icon {
@@ -2434,14 +2451,14 @@ const styles = `
     flex-shrink: 0;
   }
 
-  .lime-bg {
-    background: var(--lime-vivid);
-    color: #0f172a;
+  .emerald-bg {
+    background: var(--bg-emerald-soft);
+    color: var(--emerald-dark);
   }
 
-  .dark-lime-bg {
-    background: var(--bg-elevated);
-    color: var(--lime-deep);
+  .mint-bg {
+    background: var(--bg-mint-soft);
+    color: var(--mint-accent);
   }
 
   .red-bg {
@@ -2455,8 +2472,8 @@ const styles = `
     justify-content: space-between;
     padding: 24px 28px;
     border-radius: 22px;
-    background: linear-gradient(120deg, #ffffff 0%, #ecfccb 100%);
-    border: 1px solid var(--lime-primary);
+    background: linear-gradient(120deg, #ffffff 0%, var(--bg-emerald-soft) 100%);
+    border: 1px solid var(--border-emerald);
   }
 
   .expense-total-value {
@@ -2472,8 +2489,9 @@ const styles = `
     border-radius: 16px;
     display: grid;
     place-items: center;
-    background: var(--lime-vivid);
-    color: #0f172a;
+    background: var(--bg-emerald-soft);
+    border: 1px solid var(--border-emerald);
+    color: var(--emerald-dark);
     font-size: 22px;
     font-weight: 900;
   }
@@ -2487,7 +2505,7 @@ const styles = `
 
   .expense-category-card,
   .history-card {
-    background: #ffffff;
+    background: var(--bg-surface);
     border: 1px solid var(--border-card);
     border-radius: 18px;
     padding: 18px;
@@ -2508,8 +2526,8 @@ const styles = `
   .category-percent {
     padding: 4px 10px;
     border-radius: 999px;
-    background: var(--bg-elevated);
-    color: var(--lime-deep);
+    background: var(--bg-emerald-soft);
+    color: var(--emerald-deep);
     font-size: 12px;
     font-weight: 800;
   }
@@ -2552,14 +2570,14 @@ const styles = `
   }
 
   .toggle-tabs button.active {
-    background: #ffffff;
+    background: var(--bg-surface);
     color: var(--ink-primary);
     box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
   }
 
   .toggle-tabs button.income-tab.active {
-    background: var(--lime-vivid);
-    color: #0f172a;
+    background: var(--bg-emerald-soft);
+    color: var(--emerald-deep);
     font-weight: 800;
   }
 
@@ -2600,13 +2618,13 @@ const styles = `
   }
 
   .chat-bubble.ai-bubble {
-    background: var(--bg-elevated);
-    border: 1px solid var(--lime-primary);
+    background: var(--bg-emerald-soft);
+    border: 1px solid var(--border-emerald);
     align-self: flex-start;
   }
 
   .chat-bubble.user-bubble {
-    background: #0f172a;
+    background: var(--ink-primary);
     color: #ffffff;
     align-self: flex-end;
   }
@@ -2651,18 +2669,18 @@ const styles = `
     text-align: center;
     color: var(--ink-muted);
     font-size: 14px;
-    background: var(--bg-soft);
+    background: var(--bg-canvas);
     border-radius: 16px;
-    border: 1px dashed #cbd5e1;
+    border: 1px dashed var(--border-card);
   }
 
   .notice {
     margin-top: 14px;
     padding: 12px 14px;
     border-radius: 12px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--lime-primary);
-    color: var(--lime-deep);
+    background: var(--bg-emerald-soft);
+    border: 1px solid var(--border-emerald);
+    color: var(--emerald-deep);
     font-size: 13px;
     font-weight: 700;
   }
@@ -2720,8 +2738,8 @@ const styles = `
     .mobile-exit {
       padding: 8px 12px;
       border-radius: 10px;
-      border: 1px solid var(--border-subtle);
-      background: #ffffff;
+      border: 1px solid var(--border-card);
+      background: var(--bg-surface);
       font-weight: 700;
       font-size: 12px;
     }
@@ -2742,16 +2760,16 @@ const styles = `
       padding: 8px 12px;
       border-radius: 999px;
       border: 1px solid var(--border-card);
-      background: #ffffff;
+      background: var(--bg-surface);
       font-size: 12px;
       font-weight: 700;
       color: var(--ink-secondary);
     }
 
     .mobile-pill.active {
-      background: var(--lime-vivid);
-      border-color: var(--lime-dark);
-      color: #0f172a;
+      background: var(--emerald-primary);
+      border-color: var(--emerald-dark);
+      color: #ffffff;
       font-weight: 800;
     }
 
