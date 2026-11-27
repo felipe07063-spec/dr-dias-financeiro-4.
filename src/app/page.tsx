@@ -1017,17 +1017,16 @@ const styles = `
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
 
 :root {
-  color-scheme: dark;
-  --bg: #0b0e0d;
-  --panel: #121715;
-  --panel-2: #171e1a;
-  --border: #26312b;
-  --text: #f0f4f0;
-  --muted: #89968d;
-  --green: #9ce5b1;
-  --green-dark: #1b3a29;
-  --red: #f19b9b;
-  --gold: #d7c18c;
+  --bg: #f4f8f5;
+  --panel: #ffffff;
+  --panel-2: #edf6ef;
+  --border: #dce9df;
+  --text: #26382d;
+  --muted: #78877c;
+  --green: #268653;
+  --green-dark: #e2f3e7;
+  --red: #c65b5b;
+  --gold: #bd9140;
 }
 
 * { box-sizing: border-box; }
