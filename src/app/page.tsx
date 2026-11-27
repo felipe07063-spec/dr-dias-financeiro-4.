@@ -1,7 +1,6 @@
-
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 type Tx = {
@@ -25,17 +24,42 @@ type FutureBill = {
   transaction_id: string | null;
 };
 
-type Profile = { id: string; email?: string };
+type WalletInfo = {
+  id: string;
+  invite_code?: string;
+  name?: string;
+};
+
+type Profile = {
+  id: string;
+  email?: string;
+};
+
+type ViewId = "home" | "expenses" | "transactions" | "bills" | "history" | "assistant" | "family";
 
 const money = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+const parseBRLAmount = (raw: string): number => {
+  const cleaned = raw.trim().replace(/\s+/g, "").replace(/\./g, "").replace(",", ".");
+  const value = Number(cleaned);
+  return Number.isFinite(value) ? value : NaN;
+};
+
 const today = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
 };
 
 const monthNow = today().slice(0, 7);
+
+const toLocalYearMonth = (isoDate: string): string => {
+  const d = new Date(isoDate);
+  if (Number.isNaN(d.getTime())) return isoDate.slice(0, 7);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
 
 const categories = [
   "Alimentação",
@@ -55,25 +79,25 @@ const categories = [
 ];
 
 const categoryIcons: Record<string, string> = {
-  "Alimentação": "🛒",
-  "Moradia": "🏠",
-  "Transporte": "🚗",
-  "Combustível": "⛽",
-  "Saúde": "💊",
-  "Lazer": "🎮",
-  "Salário": "💰",
-  "Contas": "💡",
-  "Educação": "📚",
-  "Restaurantes": "🍔",
-  "Compras": "🛍️",
-  "Pets": "🐶",
+  Alimentação: "🛒",
+  Moradia: "🏠",
+  Transporte: "🚗",
+  Combustível: "⛽",
+  Saúde: "💊",
+  Lazer: "🎮",
+  Salário: "💰",
+  Contas: "💡",
+  Educação: "📚",
+  Restaurantes: "🍔",
+  Compras: "🛍️",
+  Pets: "🐶",
   "Cartão de crédito": "💳",
-  "Outros": "📦",
+  Outros: "📦",
 };
 
 const icon = (category: string) => categoryIcons[category] || "📌";
 
-const navItems = [
+const navItems: { id: ViewId; label: string; emoji: string }[] = [
   { id: "home", label: "Visão geral", emoji: "◫" },
   { id: "expenses", label: "Despesas", emoji: "↘" },
   { id: "transactions", label: "Lançamentos", emoji: "⇄" },
@@ -89,17 +113,20 @@ export default function Home() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+
   const [walletId, setWalletId] = useState("");
+  const [walletMeta, setWalletMeta] = useState<WalletInfo | null>(null);
   const [inviteCode, setInviteCode] = useState("");
+
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [futureBills, setFutureBills] = useState<FutureBill[]>([]);
-  const [activeView, setActiveView] = useState("home");
+  const [activeView, setActiveView] = useState<ViewId>("home");
 
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [kind, setKind] = useState<"expense" | "income">("expense");
   const [category, setCategory] = useState("Alimentação");
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState<"all" | "income" | "expense">("all");
 
   const [billDescription, setBillDescription] = useState("");
   const [billAmount, setBillAmount] = useState("");
@@ -108,9 +135,13 @@ export default function Home() {
 
   const [selectedMonth, setSelectedMonth] = useState(monthNow);
   const [message, setMessage] = useState("");
-  const [chat, setChat] = useState(
-    "Olá! Sou o assistente do DR DIAS. Posso resumir seus lançamentos e ajudar a planejar seu orçamento."
-  );
+  const [chatHistory, setChatHistory] = useState<{ role: "assistant" | "user"; text: string }[]>([
+    {
+      role: "assistant",
+      text: "Olá! Sou o assistente executivo do DR DIAS. Posso resumir receitas, despesas, saldo líquido e apontar onde concentrar economia.",
+    },
+  ]);
+
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -121,26 +152,65 @@ export default function Home() {
     }
 
     supabase.auth.getSession().then(({ data }) => {
-      setSessionUser(data.session?.user
-        ? { id: data.session.user.id, email: data.session.user.email }
-        : null);
+      setSessionUser(
+        data.session?.user
+          ? { id: data.session.user.id, email: data.session.user.email }
+          : null
+      );
       setAuthReady(true);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSessionUser(session?.user
-        ? { id: session.user.id, email: session.user.email }
-        : null);
+      setSessionUser(
+        session?.user
+          ? { id: session.user.id, email: session.user.email }
+          : null
+      );
     });
 
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (sessionUser && supabase) loadWallet();
-  }, [sessionUser]);
+  const loadTransactions = useCallback(async (id: string) => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from("transactions")
+      .select("*")
+      .eq("wallet_id", id)
+      .order("created_at", { ascending: false });
 
-  async function loadWallet() {
+    if (error) setNotice(error.message);
+    else setTransactions((data || []) as Tx[]);
+  }, []);
+
+  const loadFutureBills = useCallback(async (id: string) => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from("future_bills")
+      .select("*")
+      .eq("wallet_id", id)
+      .order("due_date", { ascending: true });
+
+    if (error) setNotice(error.message);
+    else setFutureBills((data || []) as FutureBill[]);
+  }, []);
+
+  const loadWalletDetails = useCallback(async (id: string) => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from("wallets")
+      .select("id, invite_code, name")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (!error && data) {
+      setWalletMeta(data as WalletInfo);
+    } else {
+      setWalletMeta({ id });
+    }
+  }, []);
+
+  const loadWallet = useCallback(async () => {
     if (!supabase || !sessionUser) return;
 
     const { data: memberships, error } = await supabase
@@ -156,39 +226,20 @@ export default function Home() {
 
     if (!memberships?.length) {
       setWalletId("");
+      setWalletMeta(null);
       return;
     }
 
     const id = memberships[0].wallet_id as string;
     setWalletId(id);
-    await Promise.all([loadTransactions(id), loadFutureBills(id)]);
-  }
+    await Promise.all([loadWalletDetails(id), loadTransactions(id), loadFutureBills(id)]);
+  }, [sessionUser, loadWalletDetails, loadTransactions, loadFutureBills]);
 
-  async function loadTransactions(id: string) {
-    if (!supabase) return;
-
-    const { data, error } = await supabase
-      .from("transactions")
-      .select("*")
-      .eq("wallet_id", id)
-      .order("created_at", { ascending: false });
-
-    if (error) setNotice(error.message);
-    else setTransactions((data || []) as Tx[]);
-  }
-
-  async function loadFutureBills(id: string) {
-    if (!supabase) return;
-
-    const { data, error } = await supabase
-      .from("future_bills")
-      .select("*")
-      .eq("wallet_id", id)
-      .order("due_date", { ascending: true });
-
-    if (error) setNotice(error.message);
-    else setFutureBills((data || []) as FutureBill[]);
-  }
+  useEffect(() => {
+    if (sessionUser && supabase) {
+      void loadWallet();
+    }
+  }, [sessionUser, loadWallet]);
 
   async function authSubmit(e: FormEvent) {
     e.preventDefault();
@@ -201,12 +252,14 @@ export default function Home() {
       return;
     }
 
-    const result = authMode === "signup"
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
+    const result =
+      authMode === "signup"
+        ? await supabase.auth.signUp({ email, password })
+        : await supabase.auth.signInWithPassword({ email, password });
 
-    if (result.error) setNotice(result.error.message);
-    else if (authMode === "signup") {
+    if (result.error) {
+      setNotice(result.error.message);
+    } else if (authMode === "signup") {
       setNotice("Cadastro enviado. Confirme seu e-mail se solicitado.");
     }
 
@@ -217,15 +270,19 @@ export default function Home() {
     if (!supabase || !sessionUser) return;
 
     setBusy(true);
+    setNotice("");
     const { data, error } = await supabase.rpc("create_family_wallet");
 
-    if (error) setNotice(error.message);
-    else {
-      setWalletId(data as string);
+    if (error) {
+      setNotice(error.message);
+    } else {
+      const createdId = String(data);
+      setWalletId(createdId);
       setNotice("Carteira familiar criada. Compartilhe o código de convite.");
       await Promise.all([
-        loadTransactions(data as string),
-        loadFutureBills(data as string)
+        loadWalletDetails(createdId),
+        loadTransactions(createdId),
+        loadFutureBills(createdId),
       ]);
     }
 
@@ -236,12 +293,15 @@ export default function Home() {
     if (!supabase) return;
 
     setBusy(true);
+    setNotice("");
     const { error } = await supabase.rpc("join_family_wallet", {
-      invite_code_input: inviteCode.trim().toUpperCase()
+      invite_code_input: inviteCode.trim().toUpperCase(),
     });
 
-    if (error) setNotice(error.message);
-    else {
+    if (error) {
+      setNotice(error.message);
+    } else {
+      setInviteCode("");
       setNotice("Você entrou na carteira familiar!");
       await loadWallet();
     }
@@ -251,14 +311,15 @@ export default function Home() {
 
   async function addTransaction(e: FormEvent) {
     e.preventDefault();
+    const value = parseBRLAmount(amount);
 
-    const value = Number(amount.replace(",", "."));
     if (!supabase || !walletId || !description.trim() || !Number.isFinite(value) || value <= 0) {
-      setNotice("Confira a descrição e informe um valor válido.");
+      setNotice("Confira a descrição e informe um valor válido maior que zero.");
       return;
     }
 
     setBusy(true);
+    setNotice("");
 
     const { error } = await supabase.from("transactions").insert({
       wallet_id: walletId,
@@ -266,15 +327,16 @@ export default function Home() {
       amount: value,
       kind,
       category,
-      created_by: sessionUser?.id
+      created_by: sessionUser?.id,
     });
 
-    if (error) setNotice(error.message);
-    else {
+    if (error) {
+      setNotice(error.message);
+    } else {
       setDescription("");
       setAmount("");
       await loadTransactions(walletId);
-      setNotice("Lançamento salvo!");
+      setNotice("Lançamento salvo com sucesso!");
     }
 
     setBusy(false);
@@ -282,16 +344,22 @@ export default function Home() {
 
   async function addFutureBill(e: FormEvent) {
     e.preventDefault();
+    const value = parseBRLAmount(billAmount);
 
-    const value = Number(billAmount.replace(",", "."));
-
-    if (!supabase || !walletId || !billDescription.trim() ||
-        !Number.isFinite(value) || value <= 0 || !billDueDate) {
+    if (
+      !supabase ||
+      !walletId ||
+      !billDescription.trim() ||
+      !Number.isFinite(value) ||
+      value <= 0 ||
+      !billDueDate
+    ) {
       setNotice("Confira os dados da conta futura.");
       return;
     }
 
     setBusy(true);
+    setNotice("");
 
     const { error } = await supabase.from("future_bills").insert({
       wallet_id: walletId,
@@ -299,11 +367,12 @@ export default function Home() {
       amount: value,
       category: billCategory,
       due_date: billDueDate,
-      created_by: sessionUser?.id
+      created_by: sessionUser?.id,
     });
 
-    if (error) setNotice(error.message);
-    else {
+    if (error) {
+      setNotice(error.message);
+    } else {
       setBillDescription("");
       setBillAmount("");
       setBillCategory("Contas");
@@ -323,20 +392,25 @@ export default function Home() {
       return;
     }
 
-    if (!confirm(`Confirmar pagamento de ${bill.description} no valor de ${money(Number(bill.amount))}?`)) return;
+    if (
+      !window.confirm(
+        `Confirmar pagamento de ${bill.description} no valor de ${money(Number(bill.amount))}?`
+      )
+    ) {
+      return;
+    }
 
     setBusy(true);
+    setNotice("");
 
     const { error } = await supabase.rpc("pay_future_bill", {
-      p_bill_id: bill.id
+      p_bill_id: bill.id,
     });
 
-    if (error) setNotice(error.message);
-    else {
-      await Promise.all([
-        loadTransactions(walletId),
-        loadFutureBills(walletId)
-      ]);
+    if (error) {
+      setNotice(error.message);
+    } else {
+      await Promise.all([loadTransactions(walletId), loadFutureBills(walletId)]);
       setNotice("Conta paga e despesa registrada no financeiro!");
     }
 
@@ -344,121 +418,195 @@ export default function Home() {
   }
 
   async function deleteFutureBill(id: string) {
-    if (!supabase || !confirm("Excluir esta conta futura?")) return;
+    if (!supabase || !walletId || !window.confirm("Excluir esta conta futura?")) return;
 
-    const { error } = await supabase
-      .from("future_bills")
-      .delete()
-      .eq("id", id);
+    setBusy(true);
+    const { error } = await supabase.from("future_bills").delete().eq("id", id);
 
     if (error) setNotice(error.message);
-    else await loadFutureBills(walletId);
+    else {
+      await loadFutureBills(walletId);
+      setNotice("Conta futura removida.");
+    }
+    setBusy(false);
   }
 
   async function editTransaction(t: Tx) {
-    if (!supabase) return;
+    if (!supabase || !walletId) return;
 
-    const newDescription = prompt("Descrição do lançamento:", t.description);
+    const newDescription = window.prompt("Descrição do lançamento:", t.description);
     if (newDescription === null || !newDescription.trim()) return;
 
-    const newAmountText = prompt("Valor em reais:", String(t.amount).replace(".", ","));
+    const newAmountText = window.prompt(
+      "Valor em reais:",
+      Number(t.amount).toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+    );
     if (newAmountText === null) return;
 
-    const newAmount = Number(newAmountText.replace(",", "."));
-
+    const newAmount = parseBRLAmount(newAmountText);
     if (!Number.isFinite(newAmount) || newAmount <= 0) {
       setNotice("Informe um valor válido.");
       return;
     }
 
-    const { error } = await supabase.from("transactions").update({
-      description: newDescription.trim(),
-      amount: newAmount
-    }).eq("id", t.id);
+    const { error } = await supabase
+      .from("transactions")
+      .update({
+        description: newDescription.trim(),
+        amount: newAmount,
+      })
+      .eq("id", t.id);
 
     if (error) setNotice(error.message);
-    else await loadTransactions(walletId);
+    else {
+      await loadTransactions(walletId);
+      setNotice("Lançamento atualizado.");
+    }
   }
 
   async function deleteTransaction(id: string) {
-    if (!supabase || !confirm("Excluir este lançamento?")) return;
+    if (!supabase || !walletId || !window.confirm("Excluir este lançamento?")) return;
 
     const { error } = await supabase.from("transactions").delete().eq("id", id);
 
     if (error) setNotice(error.message);
-    else await loadTransactions(walletId);
+    else {
+      await loadTransactions(walletId);
+      setNotice("Lançamento excluído.");
+    }
   }
 
-  const totals = useMemo(() => transactions.reduce((a, t) => {
-    if (t.kind === "income") a.income += Number(t.amount);
-    else a.expense += Number(t.amount);
-    return a;
-  }, { income: 0, expense: 0 }), [transactions]);
-
-  const visible = transactions.filter(t =>
-    filter === "all" || t.kind === filter
+  const totals = useMemo(
+    () =>
+      transactions.reduce(
+        (acc, t) => {
+          if (t.kind === "income") acc.income += Number(t.amount);
+          else acc.expense += Number(t.amount);
+          return acc;
+        },
+        { income: 0, expense: 0 }
+      ),
+    [transactions]
   );
 
-  const monthTransactions = useMemo(() =>
-    transactions.filter(t => t.created_at.slice(0, 7) === selectedMonth),
-    [transactions, selectedMonth]);
+  const visible = useMemo(
+    () => transactions.filter((t) => filter === "all" || t.kind === filter),
+    [transactions, filter]
+  );
 
-  const monthTotals = useMemo(() => monthTransactions.reduce((a, t) => {
-    if (t.kind === "income") a.income += Number(t.amount);
-    else a.expense += Number(t.amount);
-    return a;
-  }, { income: 0, expense: 0 }), [monthTransactions]);
+  const monthTransactions = useMemo(
+    () => transactions.filter((t) => toLocalYearMonth(t.created_at) === selectedMonth),
+    [transactions, selectedMonth]
+  );
 
-  const monthExpenses = monthTransactions.filter(t => t.kind === "expense");
+  const monthTotals = useMemo(
+    () =>
+      monthTransactions.reduce(
+        (acc, t) => {
+          if (t.kind === "income") acc.income += Number(t.amount);
+          else acc.expense += Number(t.amount);
+          return acc;
+        },
+        { income: 0, expense: 0 }
+      ),
+    [monthTransactions]
+  );
+
+  const monthExpenses = useMemo(
+    () => monthTransactions.filter((t) => t.kind === "expense"),
+    [monthTransactions]
+  );
 
   const categoryTotals = useMemo(() => {
     const result: Record<string, number> = {};
-    monthExpenses.forEach(t => {
+    monthExpenses.forEach((t) => {
       result[t.category] = (result[t.category] || 0) + Number(t.amount);
     });
     return Object.entries(result).sort((a, b) => b[1] - a[1]);
   }, [monthExpenses]);
 
-  const pendingBills = futureBills.filter(b => !b.paid);
-  const paidBills = futureBills.filter(b => b.paid);
-  const pendingTotal = pendingBills.reduce((sum, b) => sum + Number(b.amount), 0);
+  const monthlyHistory = useMemo(() => {
+    const grouped: Record<string, { income: number; expense: number; count: number }> = {};
+    transactions.forEach((t) => {
+      const ym = toLocalYearMonth(t.created_at);
+      if (!grouped[ym]) grouped[ym] = { income: 0, expense: 0, count: 0 };
+      if (t.kind === "income") grouped[ym].income += Number(t.amount);
+      else grouped[ym].expense += Number(t.amount);
+      grouped[ym].count += 1;
+    });
+    return Object.entries(grouped).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [transactions]);
 
-  function answerAssistant(question: string) {
-    const q = question.toLowerCase();
-    let response = "";
+  const pendingBills = useMemo(() => futureBills.filter((b) => !b.paid), [futureBills]);
+  const paidBills = useMemo(() => futureBills.filter((b) => b.paid), [futureBills]);
+  const pendingTotal = useMemo(
+    () => pendingBills.reduce((sum, b) => sum + Number(b.amount), 0),
+    [pendingBills]
+  );
+
+  function handleAssistantSubmit(e: FormEvent) {
+    e.preventDefault();
+    const trimmed = message.trim();
+    if (!trimmed) return;
+
+    const q = trimmed.toLowerCase();
+    let reply = "";
 
     if (q.includes("quanto") || q.includes("resumo") || q.includes("gastei") || q.includes("saldo")) {
-      response = `Com base nos ${transactions.length} lançamentos: receitas de ${money(totals.income)}, despesas de ${money(totals.expense)} e saldo líquido de ${money(totals.income - totals.expense)}.`;
-    } else if (q.includes("econom") || q.includes("cortar") || q.includes("reduzir")) {
+      reply = `Resumo de ${transactions.length} lançamentos: receitas de ${money(
+        totals.income
+      )}, despesas de ${money(totals.expense)} e saldo líquido de ${money(
+        totals.income - totals.expense
+      )}. Há ${pendingBills.length} conta(s) futura(s) pendente(s) somando ${money(
+        pendingTotal
+      )}.`;
+    } else if (q.includes("econom") || q.includes("cortar") || q.includes("reduzir") || q.includes("maior")) {
       const byCategory = transactions
-        .filter(t => t.kind === "expense")
+        .filter((t) => t.kind === "expense")
         .reduce((acc: Record<string, number>, t) => {
           acc[t.category] = (acc[t.category] || 0) + Number(t.amount);
           return acc;
         }, {});
 
       const biggest = Object.entries(byCategory).sort((a, b) => b[1] - a[1])[0];
-
-      response = biggest
-        ? `A categoria com maior despesa é ${biggest[0]} (${money(biggest[1])}). Vale revisar esses gastos.`
-        : "Ainda não há despesas suficientes registradas.";
+      reply = biggest
+        ? `O maior centro de custo acumulado é "${biggest[0]}" com ${money(
+            biggest[1]
+          )}. Definir um teto mensal nessa categoria traz o maior impacto rápido.`
+        : "Ainda não há despesas suficientes registradas para sugerir cortes.";
+    } else if (q.includes("conta") || q.includes("futura") || q.includes("vencer")) {
+      reply =
+        pendingBills.length > 0
+          ? `Você tem ${pendingBills.length} contas futuras pendentes totalizando ${money(
+              pendingTotal
+            )}. A próxima é "${pendingBills[0].description}" (${money(
+              Number(pendingBills[0].amount)
+            )}) em ${new Date(`${pendingBills[0].due_date}T12:00:00`).toLocaleDateString("pt-BR")}.`
+          : "Não há contas futuras pendentes no momento.";
     } else {
-      response = "Posso resumir receitas e despesas, calcular o saldo ou apontar a categoria com maior gasto.";
+      reply =
+        "Posso apresentar o resumo de receitas/despesas, calcular o saldo líquido, analisar contas futuras ou apontar a categoria com maior gasto.";
     }
 
-    setChat(response);
+    setChatHistory((prev) => [
+      ...prev,
+      { role: "user", text: trimmed },
+      { role: "assistant", text: reply },
+    ]);
+    setMessage("");
   }
 
-  const monthLabel = new Date(`${selectedMonth}-15T12:00:00`).toLocaleDateString("pt-BR", {
-    month: "long",
-    year: "numeric"
-  });
+  const monthLabel = useMemo(() => {
+    const d = new Date(`${selectedMonth}-15T12:00:00`);
+    if (Number.isNaN(d.getTime())) return selectedMonth;
+    return d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  }, [selectedMonth]);
 
   function Header({ title, subtitle }: { title: string; subtitle: string }) {
     return (
       <div className="page-heading">
         <div>
-          <div className="eyebrow">DR DIAS / FINANCEIRO</div>
+          <div className="eyebrow">DR DIAS · EXECUTIVE FINANCE</div>
           <h1>{title}</h1>
           <p>{subtitle}</p>
         </div>
@@ -475,7 +623,7 @@ export default function Home() {
     value,
     detail,
     tone = "",
-    symbol
+    symbol,
   }: {
     label: string;
     value: string;
@@ -495,7 +643,7 @@ export default function Home() {
     );
   }
 
-  function Empty({ children }: { children: React.ReactNode }) {
+  function Empty({ children }: { children: ReactNode }) {
     return <div className="empty-state">{children}</div>;
   }
 
@@ -503,6 +651,7 @@ export default function Home() {
     return (
       <main className="auth-screen">
         <div className="auth-card">Carregando DR DIAS...</div>
+        <style jsx global>{styles}</style>
       </main>
     );
   }
@@ -515,26 +664,51 @@ export default function Home() {
             <div className="brandmark">V</div>
             <div>
               <h1>DR DIAS</h1>
-              <p>FINANCEIRO FAMILIAR</p>
+              <p>FINANCEIRO EXECUTIVO</p>
             </div>
           </div>
           <div className="auth-intro">
-            <span className="eyebrow">SEU CONTROLE FINANCEIRO</span>
+            <span className="eyebrow">ACESSO CORPORATIVO & FAMILIAR</span>
             <h2>{authMode === "login" ? "Bem-vindo de volta." : "Crie seu acesso."}</h2>
-            <p>Organize suas finanças e acompanhe sua carteira familiar em um só lugar.</p>
+            <p>Controle preciso de fluxo de caixa, contas futuras e carteira compartilhada.</p>
           </div>
           <form onSubmit={authSubmit} className="form-stack">
             <div className="field">
               <label>E-mail</label>
-              <input type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="voce@email.com" />
+              <input
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="voce@email.com"
+              />
             </div>
             <div className="field">
               <label>Senha</label>
-              <input type="password" minLength={6} autoComplete={authMode === "login" ? "current-password" : "new-password"} required value={password} onChange={e => setPassword(e.target.value)} placeholder="Sua senha" />
+              <input
+                type="password"
+                minLength={6}
+                autoComplete={authMode === "login" ? "current-password" : "new-password"}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Sua senha"
+              />
             </div>
-            <button className="primary-btn" disabled={busy}>{busy ? "Aguarde..." : authMode === "login" ? "Entrar na carteira →" : "Criar conta →"}</button>
+            <button className="primary-btn" disabled={busy}>
+              {busy
+                ? "Aguarde..."
+                : authMode === "login"
+                ? "Entrar na carteira →"
+                : "Criar conta →"}
+            </button>
           </form>
-          <button className="text-btn" onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")}>
+          <button
+            type="button"
+            className="text-btn"
+            onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")}
+          >
             {authMode === "login" ? "Primeiro acesso? Criar conta" : "Já tem conta? Entrar"}
           </button>
           {notice && <div className="notice">{notice}</div>}
@@ -551,27 +725,58 @@ export default function Home() {
         <section className="auth-card">
           <div className="brand">
             <div className="brandmark">V</div>
-            <div><h1>DR DIAS</h1><p>FINANCEIRO FAMILIAR</p></div>
+            <div>
+              <h1>DR DIAS</h1>
+              <p>FINANCEIRO EXECUTIVO</p>
+            </div>
           </div>
           <div className="auth-intro">
-            <span className="eyebrow">QUASE LÁ</span>
+            <span className="eyebrow">CONFIGURAÇÃO INICIAL</span>
             <h2>Sua carteira familiar</h2>
-            <p>Crie a carteira no primeiro usuário. Depois, o segundo usuário entra com o código de convite.</p>
+            <p>
+              Crie a carteira no primeiro acesso. Depois, o segundo membro entra usando o código de
+              convite.
+            </p>
           </div>
-          <button className="primary-btn" onClick={createWallet} disabled={busy}>＋ Criar carteira familiar</button>
-          <div className="separator"><span>OU ENTRE EM UMA CARTEIRA</span></div>
+          <button type="button" className="primary-btn" onClick={createWallet} disabled={busy}>
+            ＋ Criar carteira familiar
+          </button>
+          <div className="separator">
+            <span>OU ENTRE EM UMA CARTEIRA</span>
+          </div>
           <div className="field">
             <label>Código de convite</label>
-            <input value={inviteCode} onChange={e => setInviteCode(e.target.value)} placeholder="Ex.: A1B2C3D4" />
+            <input
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              placeholder="Ex.: A1B2C3D4"
+            />
           </div>
-          <button className="secondary-btn full" onClick={joinWallet} disabled={busy || !inviteCode.trim()}>Entrar em uma carteira existente</button>
-          <button className="text-btn" onClick={() => supabase?.auth.signOut()}>Sair da conta</button>
+          <button
+            type="button"
+            className="secondary-btn full"
+            onClick={joinWallet}
+            disabled={busy || !inviteCode.trim()}
+          >
+            Entrar em uma carteira existente
+          </button>
+          <button
+            type="button"
+            className="text-btn"
+            onClick={() => {
+              void supabase?.auth.signOut();
+            }}
+          >
+            Sair da conta
+          </button>
           {notice && <div className="notice">{notice}</div>}
         </section>
         <style jsx global>{styles}</style>
       </main>
     );
   }
+
+  const netBalance = totals.income - totals.expense;
 
   return (
     <main className="app-shell">
@@ -580,17 +785,21 @@ export default function Home() {
           <div className="brandmark">V</div>
           <div>
             <h1>DR DIAS</h1>
-            <p>FINANCEIRO</p>
+            <p>EXECUTIVE LIME</p>
           </div>
         </div>
 
         <div className="nav-caption">MENU PRINCIPAL</div>
         <nav className="navigation">
-          {navItems.map(item => (
+          {navItems.map((item) => (
             <button
               key={item.id}
+              type="button"
               className={`nav-item ${activeView === item.id ? "selected" : ""}`}
-              onClick={() => { setActiveView(item.id); setNotice(""); }}
+              onClick={() => {
+                setActiveView(item.id);
+                setNotice("");
+              }}
             >
               <span className="nav-icon">{item.emoji}</span>
               <span>{item.label}</span>
@@ -603,12 +812,18 @@ export default function Home() {
           <div className="wallet-mini">
             <div className="wallet-mini-icon">♡</div>
             <div>
-              <strong>Carteira familiar</strong>
-              <span>Compartilhada</span>
+              <strong>{walletMeta?.name || "Carteira familiar"}</strong>
+              <span>Ativa · Tempo real</span>
             </div>
             <span className="online-dot" />
           </div>
-          <button className="logout-btn" onClick={() => supabase?.auth.signOut()}>
+          <button
+            type="button"
+            className="logout-btn"
+            onClick={() => {
+              void supabase?.auth.signOut();
+            }}
+          >
             <span>↪</span> Sair da conta
           </button>
         </div>
@@ -618,62 +833,134 @@ export default function Home() {
         <header className="mobile-header">
           <div className="brand">
             <div className="brandmark">V</div>
-            <div><h1>DR DIAS</h1><p>FINANCEIRO</p></div>
+            <div>
+              <h1>DR DIAS</h1>
+              <p>EXECUTIVE LIME</p>
+            </div>
           </div>
-          <button className="mobile-exit" onClick={() => supabase?.auth.signOut()}>Sair</button>
+          <button
+            type="button"
+            className="mobile-exit"
+            onClick={() => {
+              void supabase?.auth.signOut();
+            }}
+          >
+            Sair
+          </button>
         </header>
+
+        <div className="mobile-nav-strip">
+          {navItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`mobile-pill ${activeView === item.id ? "active" : ""}`}
+              onClick={() => setActiveView(item.id)}
+            >
+              <span>{item.emoji}</span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
 
         {notice && (
           <div className="notice global-notice">
-            <span>ⓘ</span>{notice}
-            <button onClick={() => setNotice("")}>×</button>
+            <span>ⓘ</span>
+            <span>{notice}</span>
+            <button type="button" onClick={() => setNotice("")}>
+              ×
+            </button>
           </div>
         )}
 
         {activeView === "home" && (
           <>
-            <Header title="Visão geral" subtitle="Aqui está o resumo da sua vida financeira." />
+            <Header
+              title="Visão geral"
+              subtitle="Painel executivo de performance e liquidez da carteira."
+            />
 
             <section className="welcome-strip">
               <div>
-                <span className="eyebrow">SUA CARTEIRA FAMILIAR</span>
-                <h2>Suas finanças, sob controle.</h2>
-                <p>Um panorama simples e organizado do dinheiro da família.</p>
+                <span className="eyebrow">CARTEIRA COMPARTILHADA</span>
+                <h2>Alta clareza, execução rápida.</h2>
+                <p>Acompanhe entradas, saídas, compromissos futuros e saldo líquido em um só lugar.</p>
               </div>
               <div className="welcome-mark">V</div>
             </section>
 
             <div className="section-title-row">
-              <div><h2>Resumo financeiro</h2><p>Todos os lançamentos registrados</p></div>
-              <span className="period-pill">VISÃO GERAL</span>
+              <div>
+                <h2>Indicadores principais</h2>
+                <p>Consolidado de todos os lançamentos registrados</p>
+              </div>
+              <span className="period-pill">TEMPO REAL</span>
             </div>
 
             <section className="stats-grid">
-              <StatCard label="Saldo líquido" value={money(totals.income - totals.expense)} detail="Receitas menos despesas" tone="white-value" symbol="◈" />
-              <StatCard label="Receitas" value={money(totals.income)} detail="Dinheiro que entrou" tone="positive" symbol="↗" />
-              <StatCard label="Despesas" value={money(totals.expense)} detail="Dinheiro que saiu" tone="negative" symbol="↘" />
-              <StatCard label="Contas pendentes" value={money(pendingTotal)} detail={`${pendingBills.length} contas aguardando pagamento`} symbol="▤" />
+              <StatCard
+                label="Saldo líquido"
+                value={money(netBalance)}
+                detail="Receitas menos despesas"
+                tone={netBalance >= 0 ? "lime-value" : "negative"}
+                symbol="◈"
+              />
+              <StatCard
+                label="Receitas"
+                value={money(totals.income)}
+                detail="Entradas confirmadas"
+                tone="positive"
+                symbol="↗"
+              />
+              <StatCard
+                label="Despesas"
+                value={money(totals.expense)}
+                detail="Saídas registradas"
+                tone="negative"
+                symbol="↘"
+              />
+              <StatCard
+                label="Contas pendentes"
+                value={money(pendingTotal)}
+                detail={`${pendingBills.length} conta(s) a pagar`}
+                symbol="▤"
+              />
             </section>
 
             <section className="dashboard-grid">
               <div className="surface">
                 <div className="surface-heading">
-                  <div><h3>Despesas por categoria</h3><p>Distribuição dos gastos deste mês</p></div>
-                  <button className="small-link" onClick={() => setActiveView("expenses")}>Ver detalhes →</button>
+                  <div>
+                    <h3>Despesas por categoria</h3>
+                    <p>Distribuição dos gastos em {monthLabel}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="small-link"
+                    onClick={() => setActiveView("expenses")}
+                  >
+                    Ver detalhes →
+                  </button>
                 </div>
                 {categoryTotals.length === 0 ? (
                   <Empty>Nenhuma despesa registrada neste mês.</Empty>
                 ) : (
                   <div className="category-preview">
                     {categoryTotals.slice(0, 5).map(([name, value]) => {
-                      const percent = monthTotals.expense > 0 ? value / monthTotals.expense * 100 : 0;
+                      const percent =
+                        monthTotals.expense > 0 ? (value / monthTotals.expense) * 100 : 0;
                       return (
                         <div className="category-line" key={name}>
                           <div className="category-line-top">
-                            <span className="category-name"><span className="category-emoji">{icon(name)}</span>{name}</span>
+                            <span className="category-name">
+                              <span className="category-emoji">{icon(name)}</span>
+                              {name}
+                            </span>
                             <strong>{money(value)}</strong>
                           </div>
-                          <div className="progress-track"><div className="progress-fill" style={{ width: `${percent}%` }} /></div>
+                          <div className="progress-track">
+                            <div className="progress-fill" style={{ width: `${percent}%` }} />
+                          </div>
                         </div>
                       );
                     })}
@@ -683,22 +970,34 @@ export default function Home() {
 
               <div className="surface">
                 <div className="surface-heading">
-                  <div><h3>Últimas movimentações</h3><p>Atividade recente da carteira</p></div>
-                  <button className="small-link" onClick={() => setActiveView("transactions")}>Ver todas →</button>
+                  <div>
+                    <h3>Últimas movimentações</h3>
+                    <p>Atividade recente da carteira</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="small-link"
+                    onClick={() => setActiveView("transactions")}
+                  >
+                    Ver todas →
+                  </button>
                 </div>
                 {transactions.length === 0 ? (
                   <Empty>Nenhum lançamento por enquanto.</Empty>
                 ) : (
                   <div className="compact-list">
-                    {transactions.slice(0, 5).map(t => (
+                    {transactions.slice(0, 5).map((t) => (
                       <div className="compact-row" key={t.id}>
                         <div className="compact-icon">{icon(t.category)}</div>
                         <div className="compact-info">
                           <strong>{t.description}</strong>
-                          <span>{t.category} · {new Date(t.created_at).toLocaleDateString("pt-BR")}</span>
+                          <span>
+                            {t.category} · {new Date(t.created_at).toLocaleDateString("pt-BR")}
+                          </span>
                         </div>
                         <strong className={t.kind === "income" ? "positive" : "negative"}>
-                          {t.kind === "income" ? "+" : "−"}{money(Number(t.amount))}
+                          {t.kind === "income" ? "+" : "−"}
+                          {money(Number(t.amount))}
                         </strong>
                       </div>
                     ))}
@@ -708,14 +1007,47 @@ export default function Home() {
             </section>
 
             <div className="quick-actions">
-              <button className="quick-action" onClick={() => { setKind("expense"); setActiveView("transactions"); }}>
-                <span className="quick-icon red-bg">↘</span><span><strong>Nova despesa</strong><small>Registrar um gasto</small></span><b>→</b>
+              <button
+                type="button"
+                className="quick-action"
+                onClick={() => {
+                  setKind("expense");
+                  setActiveView("transactions");
+                }}
+              >
+                <span className="quick-icon red-bg">↘</span>
+                <span>
+                  <strong>Nova despesa</strong>
+                  <small>Registrar saída</small>
+                </span>
+                <b>→</b>
               </button>
-              <button className="quick-action" onClick={() => { setKind("income"); setActiveView("transactions"); }}>
-                <span className="quick-icon green-bg">↗</span><span><strong>Nova receita</strong><small>Registrar uma entrada</small></span><b>→</b>
+              <button
+                type="button"
+                className="quick-action"
+                onClick={() => {
+                  setKind("income");
+                  setActiveView("transactions");
+                }}
+              >
+                <span className="quick-icon lime-bg">↗</span>
+                <span>
+                  <strong>Nova receita</strong>
+                  <small>Registrar entrada</small>
+                </span>
+                <b>→</b>
               </button>
-              <button className="quick-action" onClick={() => setActiveView("bills")}>
-                <span className="quick-icon gold-bg">▤</span><span><strong>Contas futuras</strong><small>Organizar pagamentos</small></span><b>→</b>
+              <button
+                type="button"
+                className="quick-action"
+                onClick={() => setActiveView("bills")}
+              >
+                <span className="quick-icon dark-lime-bg">▤</span>
+                <span>
+                  <strong>Contas futuras</strong>
+                  <small>Agendar vencimentos</small>
+                </span>
+                <b>→</b>
               </button>
             </div>
           </>
@@ -723,31 +1055,48 @@ export default function Home() {
 
         {activeView === "expenses" && (
           <>
-            <Header title="Despesas" subtitle="Entenda para onde está indo o dinheiro da família." />
+            <Header
+              title="Despesas"
+              subtitle="Análise detalhada de custos por categoria e período."
+            />
             <div className="section-title-row">
-              <div><h2>Resumo das despesas</h2><p>Seus gastos separados por categoria</p></div>
-              <input className="month-filter" type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} />
+              <div>
+                <h2>Resumo das despesas</h2>
+                <p>Gastos agrupados por categoria</p>
+              </div>
+              <input
+                className="month-filter"
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+              />
             </div>
 
             <div className="expense-total-card">
               <div>
                 <span className="eyebrow">TOTAL DE DESPESAS · {monthLabel.toUpperCase()}</span>
                 <div className="expense-total-value">{money(monthTotals.expense)}</div>
-                <p>{monthExpenses.length} despesas registradas neste período</p>
+                <p>{monthExpenses.length} despesa(s) registrada(s) neste período</p>
               </div>
               <div className="expense-total-icon">↘</div>
             </div>
 
             <div className="section-title-row compact-heading">
-              <div><h2>Onde você gastou</h2><p>Toque nas categorias para identificar seus gastos</p></div>
+              <div>
+                <h2>Onde o orçamento foi alocado</h2>
+                <p>Participação percentual de cada categoria</p>
+              </div>
             </div>
 
             {categoryTotals.length === 0 ? (
-              <div className="surface"><Empty>Não existem despesas neste mês. Quando você registrar gastos, eles aparecerão aqui.</Empty></div>
+              <div className="surface">
+                <Empty>Não existem despesas neste mês.</Empty>
+              </div>
             ) : (
               <div className="expense-category-grid">
                 {categoryTotals.map(([name, value]) => {
-                  const percent = monthTotals.expense > 0 ? value / monthTotals.expense * 100 : 0;
+                  const percent =
+                    monthTotals.expense > 0 ? (value / monthTotals.expense) * 100 : 0;
                   return (
                     <div className="expense-category-card" key={name}>
                       <div className="expense-category-top">
@@ -756,7 +1105,9 @@ export default function Home() {
                       </div>
                       <strong>{name}</strong>
                       <div className="expense-category-value">{money(value)}</div>
-                      <div className="progress-track"><div className="progress-fill" style={{ width: `${percent}%` }} /></div>
+                      <div className="progress-track">
+                        <div className="progress-fill" style={{ width: `${percent}%` }} />
+                      </div>
                       <span className="category-hint">do total de despesas</span>
                     </div>
                   );
@@ -765,16 +1116,26 @@ export default function Home() {
             )}
 
             <div className="surface section-gap">
-              <div className="surface-heading"><div><h3>Detalhamento dos gastos</h3><p>Despesas registradas no mês selecionado</p></div></div>
+              <div className="surface-heading">
+                <div>
+                  <h3>Detalhamento dos gastos</h3>
+                  <p>Lançamentos de saída em {monthLabel}</p>
+                </div>
+              </div>
               {monthExpenses.length === 0 ? (
                 <Empty>Nenhuma despesa para mostrar.</Empty>
               ) : (
                 <div className="transaction-list">
-                  {monthExpenses.map(t => (
+                  {monthExpenses.map((t) => (
                     <div className="transaction-row" key={t.id}>
                       <div className="transaction-left">
                         <div className="transaction-icon">{icon(t.category)}</div>
-                        <div><strong>{t.description}</strong><span>{t.category} · {new Date(t.created_at).toLocaleDateString("pt-BR")}</span></div>
+                        <div>
+                          <strong>{t.description}</strong>
+                          <span>
+                            {t.category} · {new Date(t.created_at).toLocaleDateString("pt-BR")}
+                          </span>
+                        </div>
                       </div>
                       <strong className="negative">− {money(Number(t.amount))}</strong>
                     </div>
@@ -787,64 +1148,163 @@ export default function Home() {
 
         {activeView === "transactions" && (
           <>
-            <Header title="Lançamentos" subtitle="Registre e acompanhe tudo que entra e sai." />
+            <Header
+              title="Lançamentos"
+              subtitle="Registre, edite e filtre todas as movimentações da carteira."
+            />
             <div className="dashboard-grid">
               <div className="surface">
-                <div className="surface-heading"><div><h3>Novo lançamento</h3><p>Adicione uma receita ou despesa</p></div></div>
+                <div className="surface-heading">
+                  <div>
+                    <h3>Novo lançamento</h3>
+                    <p>Adicione uma receita ou despesa</p>
+                  </div>
+                </div>
                 <div className="toggle-tabs">
-                  <button className={kind === "expense" ? "active expense-tab" : ""} onClick={() => setKind("expense")}>↘ Despesa</button>
-                  <button className={kind === "income" ? "active income-tab" : ""} onClick={() => setKind("income")}>↗ Receita</button>
+                  <button
+                    type="button"
+                    className={kind === "expense" ? "active expense-tab" : ""}
+                    onClick={() => setKind("expense")}
+                  >
+                    ↘ Despesa
+                  </button>
+                  <button
+                    type="button"
+                    className={kind === "income" ? "active income-tab" : ""}
+                    onClick={() => setKind("income")}
+                  >
+                    ↗ Receita
+                  </button>
                 </div>
                 <form onSubmit={addTransaction} className="form-stack">
                   <div className="field">
                     <label>Descrição</label>
-                    <input required value={description} onChange={e => setDescription(e.target.value)} placeholder="Ex.: Mercado, salário, aluguel" />
+                    <input
+                      required
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="Ex.: Mercado, salário, consultoria"
+                    />
                   </div>
                   <div className="field">
                     <label>Valor (R$)</label>
-                    <input required inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0,00" />
+                    <input
+                      required
+                      inputMode="decimal"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      placeholder="0,00"
+                    />
                   </div>
                   <div className="field">
                     <label>Categoria</label>
-                    <select value={category} onChange={e => setCategory(e.target.value)}>
-                      {categories.map(c => <option key={c} value={c}>{icon(c)} {c}</option>)}
+                    <select value={category} onChange={(e) => setCategory(e.target.value)}>
+                      {categories.map((c) => (
+                        <option key={c} value={c}>
+                          {icon(c)} {c}
+                        </option>
+                      ))}
                     </select>
                   </div>
-                  <button className="primary-btn" disabled={busy}>{busy ? "Salvando..." : "＋ Salvar lançamento"}</button>
+                  <button className="primary-btn" disabled={busy}>
+                    {busy ? "Salvando..." : "＋ Salvar lançamento"}
+                  </button>
                 </form>
               </div>
 
               <div className="surface">
-                <div className="surface-heading"><div><h3>Resumo da carteira</h3><p>Totais acumulados</p></div></div>
-                <div className="mini-stat"><span>Receitas</span><strong className="positive">{money(totals.income)}</strong></div>
-                <div className="mini-stat"><span>Despesas</span><strong className="negative">{money(totals.expense)}</strong></div>
-                <div className="mini-stat total-mini"><span>Saldo líquido</span><strong>{money(totals.income - totals.expense)}</strong></div>
+                <div className="surface-heading">
+                  <div>
+                    <h3>Resumo da carteira</h3>
+                    <p>Totais acumulados</p>
+                  </div>
+                </div>
+                <div className="mini-stat">
+                  <span>Receitas</span>
+                  <strong className="positive">{money(totals.income)}</strong>
+                </div>
+                <div className="mini-stat">
+                  <span>Despesas</span>
+                  <strong className="negative">{money(totals.expense)}</strong>
+                </div>
+                <div className="mini-stat total-mini">
+                  <span>Saldo líquido</span>
+                  <strong className={netBalance >= 0 ? "lime-value" : "negative"}>
+                    {money(netBalance)}
+                  </strong>
+                </div>
               </div>
             </div>
 
             <div className="surface section-gap">
-              <div className="surface-heading"><div><h3>Movimentações</h3><p>{transactions.length} registros na carteira</p></div></div>
+              <div className="surface-heading">
+                <div>
+                  <h3>Movimentações</h3>
+                  <p>{transactions.length} registro(s) na carteira</p>
+                </div>
+              </div>
               <div className="toggle-tabs filter-tabs">
-                <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Todas</button>
-                <button className={filter === "income" ? "active income-tab" : ""} onClick={() => setFilter("income")}>Receitas</button>
-                <button className={filter === "expense" ? "active expense-tab" : ""} onClick={() => setFilter("expense")}>Despesas</button>
+                <button
+                  type="button"
+                  className={filter === "all" ? "active" : ""}
+                  onClick={() => setFilter("all")}
+                >
+                  Todas
+                </button>
+                <button
+                  type="button"
+                  className={filter === "income" ? "active income-tab" : ""}
+                  onClick={() => setFilter("income")}
+                >
+                  Receitas
+                </button>
+                <button
+                  type="button"
+                  className={filter === "expense" ? "active expense-tab" : ""}
+                  onClick={() => setFilter("expense")}
+                >
+                  Despesas
+                </button>
               </div>
               {visible.length === 0 ? (
-                <Empty>Ainda não há movimentações.</Empty>
+                <Empty>Ainda não há movimentações para este filtro.</Empty>
               ) : (
                 <div className="transaction-list">
-                  {visible.map(t => (
+                  {visible.map((t) => (
                     <div className="transaction-row" key={t.id}>
                       <div className="transaction-left">
                         <div className="transaction-icon">{icon(t.category)}</div>
-                        <div><strong>{t.description}</strong><span>{t.category} · {new Date(t.created_at).toLocaleDateString("pt-BR")}</span></div>
+                        <div>
+                          <strong>{t.description}</strong>
+                          <span>
+                            {t.category} · {new Date(t.created_at).toLocaleDateString("pt-BR")}
+                          </span>
+                        </div>
                       </div>
                       <div className="transaction-actions">
                         <strong className={t.kind === "income" ? "positive" : "negative"}>
                           {t.kind === "income" ? "+" : "−"} {money(Number(t.amount))}
                         </strong>
-                        <button className="icon-action" title="Editar" onClick={() => editTransaction(t)}>✎</button>
-                        <button className="icon-action danger-action" title="Excluir" onClick={() => deleteTransaction(t.id)}>×</button>
+                        <button
+                          type="button"
+                          className="icon-action"
+                          title="Editar"
+                          onClick={() => {
+                            void editTransaction(t);
+                          }}
+                        >
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-action danger-action"
+                          title="Excluir"
+                          onClick={() => {
+                            void deleteTransaction(t.id);
+                          }}
+                        >
+                          ×
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -856,156 +1316,312 @@ export default function Home() {
 
         {activeView === "bills" && (
           <>
-            <Header title="Contas futuras" subtitle="Planeje os próximos pagamentos sem mexer no saldo antes da hora." />
-            <section className="stats-grid bills-stats">
-              <StatCard label="Contas pendentes" value={String(pendingBills.length)} detail="Aguardando pagamento" symbol="▤" />
-              <StatCard label="Valor previsto" value={money(pendingTotal)} detail="Ainda não descontado do saldo" tone="white-value" symbol="◈" />
-              <StatCard label="Contas pagas" value={String(paidBills.length)} detail="Pagamentos confirmados" tone="positive" symbol="✓" />
-            </section>
-
+            <Header
+              title="Contas futuras"
+              subtitle="Planeje vencimentos sem impactar o saldo antes da confirmação do pagamento."
+            />
             <div className="dashboard-grid">
               <div className="surface">
-                <div className="surface-heading"><div><h3>Cadastrar conta</h3><p>Adicione um pagamento futuro</p></div></div>
+                <div className="surface-heading">
+                  <div>
+                    <h3>Agendar conta futura</h3>
+                    <p>Adicione compromissos a vencer</p>
+                  </div>
+                </div>
                 <form onSubmit={addFutureBill} className="form-stack">
-                  <div className="field"><label>Nome da conta</label><input required value={billDescription} onChange={e => setBillDescription(e.target.value)} placeholder="Ex.: Conta de luz, internet, aluguel" /></div>
-                  <div className="field"><label>Valor (R$)</label><input required inputMode="decimal" value={billAmount} onChange={e => setBillAmount(e.target.value)} placeholder="0,00" /></div>
-                  <div className="field"><label>Vencimento</label><input type="date" required value={billDueDate} onChange={e => setBillDueDate(e.target.value)} /></div>
+                  <div className="field">
+                    <label>Descrição</label>
+                    <input
+                      required
+                      value={billDescription}
+                      onChange={(e) => setBillDescription(e.target.value)}
+                      placeholder="Ex.: Energia elétrica, internet, condomínio"
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Valor (R$)</label>
+                    <input
+                      required
+                      inputMode="decimal"
+                      value={billAmount}
+                      onChange={(e) => setBillAmount(e.target.value)}
+                      placeholder="0,00"
+                    />
+                  </div>
                   <div className="field">
                     <label>Categoria</label>
-                    <select value={billCategory} onChange={e => setBillCategory(e.target.value)}>
-                      {categories.filter(c => c !== "Salário").map(c => <option key={c} value={c}>{icon(c)} {c}</option>)}
+                    <select
+                      value={billCategory}
+                      onChange={(e) => setBillCategory(e.target.value)}
+                    >
+                      {categories.map((c) => (
+                        <option key={c} value={c}>
+                          {icon(c)} {c}
+                        </option>
+                      ))}
                     </select>
                   </div>
-                  <button className="primary-btn" disabled={busy}>{busy ? "Salvando..." : "＋ Cadastrar conta"}</button>
+                  <div className="field">
+                    <label>Data de vencimento</label>
+                    <input
+                      type="date"
+                      required
+                      value={billDueDate}
+                      onChange={(e) => setBillDueDate(e.target.value)}
+                    />
+                  </div>
+                  <button className="primary-btn" disabled={busy}>
+                    {busy ? "Salvando..." : "＋ Adicionar conta futura"}
+                  </button>
                 </form>
               </div>
 
               <div className="surface">
-                <div className="surface-heading"><div><h3>Contas pendentes</h3><p>Confirme somente depois de pagar</p></div><span className="count-pill">{pendingBills.length}</span></div>
-                {pendingBills.length === 0 ? <Empty>Nenhuma conta pendente.</Empty> : (
-                  <div className="bill-list">
-                    {pendingBills.map(b => (
-                      <div className="bill-row" key={b.id}>
-                        <div className="transaction-icon">{icon(b.category)}</div>
-                        <div className="bill-info">
-                          <strong>{b.description}</strong>
-                          <span>{b.category} · Vence {new Date(`${b.due_date}T12:00:00`).toLocaleDateString("pt-BR")}</span>
-                          {b.due_date < today() && <em>VENCIDA</em>}
-                          <strong className="bill-amount">{money(Number(b.amount))}</strong>
-                          <div className="bill-actions">
-                            <button className="mini-primary" disabled={busy} onClick={() => payFutureBill(b)}>Marcar como paga</button>
-                            <button className="mini-delete" onClick={() => deleteFutureBill(b.id)}>Excluir</button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                <div className="surface-heading">
+                  <div>
+                    <h3>Compromissos em aberto</h3>
+                    <p>Total previsto para pagamento</p>
                   </div>
-                )}
+                </div>
+                <div className="mini-stat">
+                  <span>Contas pendentes</span>
+                  <strong>{pendingBills.length}</strong>
+                </div>
+                <div className="mini-stat">
+                  <span>Contas pagas</span>
+                  <strong className="positive">{paidBills.length}</strong>
+                </div>
+                <div className="mini-stat total-mini">
+                  <span>Total a pagar</span>
+                  <strong className="negative">{money(pendingTotal)}</strong>
+                </div>
               </div>
             </div>
 
             <div className="surface section-gap">
-              <div className="surface-heading"><div><h3>Contas pagas</h3><p>Pagamentos já registrados no financeiro</p></div><span className="count-pill">{paidBills.length}</span></div>
-              {paidBills.length === 0 ? <Empty>Nenhuma conta paga por enquanto.</Empty> : (
+              <div className="surface-heading">
+                <div>
+                  <h3>Contas pendentes</h3>
+                  <p>Confirme o pagamento para lançar automaticamente nas despesas</p>
+                </div>
+              </div>
+              {pendingBills.length === 0 ? (
+                <Empty>Nenhuma conta pendente no momento.</Empty>
+              ) : (
                 <div className="transaction-list">
-                  {paidBills.map(b => (
-                    <div className="transaction-row" key={b.id}>
+                  {pendingBills.map((bill) => (
+                    <div className="transaction-row" key={bill.id}>
                       <div className="transaction-left">
-                        <div className="transaction-icon">{icon(b.category)}</div>
-                        <div><strong>{b.description}</strong><span>{b.category} · Paga em {b.paid_at ? new Date(b.paid_at).toLocaleDateString("pt-BR") : "data não informada"}</span></div>
+                        <div className="transaction-icon">{icon(bill.category)}</div>
+                        <div>
+                          <strong>{bill.description}</strong>
+                          <span>
+                            {bill.category} · Vence em{" "}
+                            {new Date(`${bill.due_date}T12:00:00`).toLocaleDateString("pt-BR")}
+                          </span>
+                        </div>
                       </div>
-                      <strong className="positive">{money(Number(b.amount))} · Paga ✓</strong>
+                      <div className="transaction-actions">
+                        <strong className="negative">{money(Number(bill.amount))}</strong>
+                        <button
+                          type="button"
+                          className="pay-btn"
+                          disabled={busy}
+                          onClick={() => {
+                            void payFutureBill(bill);
+                          }}
+                        >
+                          ✓ Pagar
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-action danger-action"
+                          title="Excluir"
+                          onClick={() => {
+                            void deleteFutureBill(bill.id);
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
+
+            {paidBills.length > 0 && (
+              <div className="surface section-gap">
+                <div className="surface-heading">
+                  <div>
+                    <h3>Contas já pagas</h3>
+                    <p>Histórico de pagamentos liquidados</p>
+                  </div>
+                </div>
+                <div className="transaction-list">
+                  {paidBills.map((bill) => (
+                    <div className="transaction-row" key={bill.id}>
+                      <div className="transaction-left">
+                        <div className="transaction-icon">{icon(bill.category)}</div>
+                        <div>
+                          <strong>{bill.description}</strong>
+                          <span>
+                            {bill.category} · Pago em{" "}
+                            {bill.paid_at
+                              ? new Date(bill.paid_at).toLocaleDateString("pt-BR")
+                              : "confirmado"}
+                          </span>
+                        </div>
+                      </div>
+                      <strong className="positive">{money(Number(bill.amount))}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
 
         {activeView === "history" && (
           <>
-            <Header title="Histórico mensal" subtitle="Consulte os resultados financeiros de cada mês." />
-            <div className="section-title-row">
-              <div><h2>Escolha o período</h2><p>Veja o que entrou e saiu da carteira</p></div>
-              <input className="month-filter" type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} />
-            </div>
-            <section className="stats-grid">
-              <StatCard label="Receitas do mês" value={money(monthTotals.income)} detail={monthLabel} tone="positive" symbol="↗" />
-              <StatCard label="Despesas do mês" value={money(monthTotals.expense)} detail={monthLabel} tone="negative" symbol="↘" />
-              <StatCard label="Resultado do mês" value={money(monthTotals.income - monthTotals.expense)} detail="Receitas menos despesas" tone="white-value" symbol="◈" />
-            </section>
-            <div className="surface section-gap">
-              <div className="surface-heading"><div><h3>Movimentações de {monthLabel}</h3><p>{monthTransactions.length} registros encontrados</p></div></div>
-              {monthTransactions.length === 0 ? <Empty>Não há movimentações neste mês.</Empty> : (
-                <div className="transaction-list">
-                  {monthTransactions.map(t => (
-                    <div className="transaction-row" key={t.id}>
-                      <div className="transaction-left">
-                        <div className="transaction-icon">{icon(t.category)}</div>
-                        <div><strong>{t.description}</strong><span>{t.category} · {new Date(t.created_at).toLocaleDateString("pt-BR")}</span></div>
+            <Header
+              title="Histórico mensal"
+              subtitle="Evolução comparativa de entradas, saídas e resultado por mês."
+            />
+            <div className="surface">
+              <div className="surface-heading">
+                <div>
+                  <h3>Consolidado por mês</h3>
+                  <p>Comparativo de fluxo de caixa mensal</p>
+                </div>
+              </div>
+              {monthlyHistory.length === 0 ? (
+                <Empty>Ainda não há histórico mensal disponível.</Empty>
+              ) : (
+                <div className="history-grid">
+                  {monthlyHistory.map(([ym, data]) => {
+                    const balance = data.income - data.expense;
+                    const label = new Date(`${ym}-15T12:00:00`).toLocaleDateString("pt-BR", {
+                      month: "long",
+                      year: "numeric",
+                    });
+                    return (
+                      <div className="history-card" key={ym}>
+                        <div className="history-top">
+                          <strong>{label}</strong>
+                          <span className="period-pill">{data.count} lanç.</span>
+                        </div>
+                        <div className="mini-stat">
+                          <span>Receitas</span>
+                          <strong className="positive">{money(data.income)}</strong>
+                        </div>
+                        <div className="mini-stat">
+                          <span>Despesas</span>
+                          <strong className="negative">{money(data.expense)}</strong>
+                        </div>
+                        <div className="mini-stat total-mini">
+                          <span>Resultado</span>
+                          <strong className={balance >= 0 ? "lime-value" : "negative"}>
+                            {money(balance)}
+                          </strong>
+                        </div>
                       </div>
-                      <strong className={t.kind === "income" ? "positive" : "negative"}>
-                        {t.kind === "income" ? "+" : "−"} {money(Number(t.amount))}
-                      </strong>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
-              <p className="footnote">O histórico considera a data em que cada lançamento foi registrado. Contas futuras entram no histórico somente depois de pagas.</p>
             </div>
           </>
         )}
 
         {activeView === "assistant" && (
           <>
-            <Header title="Assistente IA" subtitle="Consulte seus dados e receba um resumo da carteira." />
-            <div className="assistant-panel">
-              <div className="assistant-orb">✧</div>
-              <span className="eyebrow">ASSISTENTE FINANCEIRO</span>
-              <h2>Como posso ajudar?</h2>
-              <p>Faça uma pergunta sobre suas receitas, despesas ou saldo.</p>
-              <div className="chatbubble">{chat}</div>
-              <form className="assistant-input" onSubmit={e => { e.preventDefault(); if (message.trim()) { answerAssistant(message); setMessage(""); } }}>
-                <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Ex.: Onde estamos gastando mais?" />
-                <button className="primary-btn" type="submit">Enviar →</button>
-              </form>
-              <div className="suggestion-row">
-                <button onClick={() => answerAssistant("Faça um resumo das minhas finanças")}>Resumo financeiro</button>
-                <button onClick={() => answerAssistant("Onde posso economizar?")}>Onde economizar?</button>
-                <button onClick={() => answerAssistant("Quanto temos de saldo?")}>Quanto temos de saldo?</button>
+            <Header
+              title="Assistente IA"
+              subtitle="Consultas rápidas sobre saldo, categorias de gasto e compromissos."
+            />
+            <div className="surface">
+              <div className="surface-heading">
+                <div>
+                  <h3>Consultor financeiro DR DIAS</h3>
+                  <p>Pergunte sobre resumo, saldo, contas futuras ou onde economizar</p>
+                </div>
               </div>
-              <p className="footnote">Assistente inicial baseado nos lançamentos registrados. As respostas são resumos simples dos seus dados.</p>
+
+              <div className="chat-thread">
+                {chatHistory.map((item, index) => (
+                  <div
+                    key={`${item.role}-${index}`}
+                    className={`chat-bubble ${item.role === "user" ? "user-bubble" : "ai-bubble"}`}
+                  >
+                    <span className="chat-role">
+                      {item.role === "user" ? "Você" : "Assistente DR DIAS"}
+                    </span>
+                    <p>{item.text}</p>
+                  </div>
+                ))}
+              </div>
+
+              <form onSubmit={handleAssistantSubmit} className="chat-form">
+                <input
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Ex.: Qual meu saldo e onde posso economizar?"
+                />
+                <button type="submit" className="primary-btn compact-btn">
+                  Enviar →
+                </button>
+              </form>
             </div>
           </>
         )}
 
         {activeView === "family" && (
           <>
-            <Header title="Carteira familiar" subtitle="Seu espaço financeiro compartilhado." />
-            <div className="family-card">
-              <div className="family-heart">♡</div>
-              <span className="eyebrow">FINANÇAS EM FAMÍLIA</span>
-              <h2>Uma carteira, duas pessoas.</h2>
-              <p>Você e Hemily podem consultar as mesmas movimentações e contas futuras usando a carteira compartilhada.</p>
-              <div className="family-status"><span className="online-dot" /> Carteira conectada</div>
-            </div>
-            <div className="surface section-gap">
-              <div className="surface-heading"><div><h3>Seu acesso</h3><p>Conta atualmente conectada</p></div></div>
-              <div className="profile-row"><span className="profile-avatar">✦</span><div><strong>{sessionUser.email}</strong><span>Usuário da carteira familiar</span></div></div>
-              <button className="secondary-btn" onClick={() => supabase?.auth.signOut()}>Sair da conta</button>
-            </div>
-            <div className="surface section-gap">
-              <div className="surface-heading"><div><h3>Compartilhamento</h3><p>Convide o outro usuário para a carteira</p></div></div>
-              <p className="muted-text">Consulte o código de convite no Supabase, na tabela wallets, coluna invite_code. O segundo usuário pode utilizá-lo na tela de entrada da carteira.</p>
+            <Header
+              title="Família"
+              subtitle="Gerencie o acesso compartilhado e o código de convite da carteira."
+            />
+            <div className="dashboard-grid">
+              <div className="surface">
+                <div className="surface-heading">
+                  <div>
+                    <h3>Dados da carteira</h3>
+                    <p>Identificação e convite para membros</p>
+                  </div>
+                </div>
+                <div className="mini-stat">
+                  <span>Responsável logado</span>
+                  <strong>{sessionUser?.email || "Usuário autenticado"}</strong>
+                </div>
+                <div className="mini-stat">
+                  <span>ID da carteira</span>
+                  <strong className="code-text">{walletId}</strong>
+                </div>
+                <div className="mini-stat total-mini">
+                  <span>Código de convite</span>
+                  <strong className="lime-value">
+                    {walletMeta?.invite_code || "Disponível na carteira"}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="surface">
+                <div className="surface-heading">
+                  <div>
+                    <h3>Como convidar outro membro</h3>
+                    <p>Compartilhamento seguro via Supabase</p>
+                  </div>
+                </div>
+                <p className="family-copy">
+                  Envie o código de convite da carteira para o outro membro. Ao criar conta ou entrar
+                  no app, basta acessar a tela de carteira e informar o código para sincronizar
+                  lançamentos e contas futuras em tempo real.
+                </p>
+              </div>
             </div>
           </>
         )}
-
-        <footer className="app-footer">
-          <span>DR DIAS FINANCEIRO</span>
-          <span>Seus dados pertencem à sua família.</span>
-        </footer>
       </section>
 
       <style jsx global>{styles}</style>
@@ -1014,524 +1630,1133 @@ export default function Home() {
 }
 
 const styles = `
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+  :root {
+    --bg-canvas: #f7fee7;
+    --bg-surface: #ffffff;
+    --bg-soft: #f4f8eb;
+    --bg-elevated: #ecfccb;
+    --ink-primary: #0f172a;
+    --ink-secondary: #3f4a3c;
+    --ink-muted: #64748b;
+    --lime-primary: #84cc16;
+    --lime-vivid: #a3e635;
+    --lime-dark: #4d7c0f;
+    --lime-deep: #365314;
+    --lime-glow: rgba(132, 204, 22, 0.28);
+    --border-subtle: #d9f99d;
+    --border-card: #e5eed8;
+    --danger: #dc2626;
+    --danger-bg: #fef2f2;
+    --success: #4d7c0f;
+    --success-bg: #ecfccb;
+  }
 
-:root {
-  --bg: #f4f8f5;
-  --panel: #ffffff;
-  --panel-2: #edf6ef;
-  --border: #dce9df;
-  --text: #26382d;
-  --muted: #78877c;
-  --green: #268653;
-  --lime: #00ff00;
-  --red: #c65b5b;
-  --gold: #bd9140;
-}
+  * {
+    box-sizing: border-box;
+  }
 
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; }
-body { min-height: 100vh; }
-button, input, select { font: inherit; }
-button { cursor: pointer; }
-button:disabled { opacity: .55; cursor: not-allowed; }
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg-canvas);
+    color: var(--ink-primary);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
 
-.app-shell { min-height: 100vh; display: flex; background: var(--bg); }
-.sidebar { width: 250px; flex: 0 0 250px; background: #0e1310; border-right: 1px solid #202a23; padding: 30px 17px 20px; display: flex; flex-direction: column; min-height: 100vh; position: sticky; top: 0; height: 100vh; }
-.brand { display: flex; align-items: center; gap: 12px; }
-.brandmark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 13px; background: #b4e7bf; color: #102016; font: 800 24px 'Manrope', sans-serif; box-shadow: 0 6px 24px #9ce5b122; }
-.brand h1 { font: 800 16px 'Manrope', sans-serif; letter-spacing: 2px; margin: 0; }
-.brand p { margin: 3px 0 0; font-size: 9px; color: #8d9a91; letter-spacing: 2.3px; }
-.sidebar-brand { padding: 0 9px 42px; }
-.nav-caption, .eyebrow { font-size: 9px; font-weight: 700; color: #839188; letter-spacing: 1.7px; }
-.nav-caption { padding: 0 12px 13px; }
-.navigation { display: flex; flex-direction: column; gap: 5px; }
-.nav-item { border: 0; border-radius: 10px; background: transparent; color: #a0aca3; padding: 12px 13px; display: flex; align-items: center; gap: 12px; text-align: left; font-size: 12px; position: relative; transition: .2s; }
-.nav-item:hover { background: #18221b; color: #fff; }
-.nav-item.selected { background: #1b2b20; color: #c1f0ca; }
-.nav-icon { width: 19px; text-align: center; font-size: 18px; color: #a8c9af; }
-.nav-indicator { position: absolute; right: 0; width: 3px; height: 22px; background: #9ce5b1; border-radius: 5px 0 0 5px; }
-.sidebar-bottom { margin-top: auto; }
-.wallet-mini { display: flex; align-items: center; gap: 9px; padding: 13px 10px; border: 1px solid #29362d; background: #141c17; border-radius: 12px; }
-.wallet-mini-icon { width: 31px; height: 31px; border-radius: 9px; display: grid; place-items: center; background: #24392a; color: #b8e7c2; font-size: 19px; }
-.wallet-mini strong, .wallet-mini span { display: block; }
-.wallet-mini strong { font-size: 10px; }
-.wallet-mini div:nth-child(2) span { color: #829087; font-size: 9px; margin-top: 3px; }
-.online-dot { width: 7px; height: 7px; background: #79d99a; border-radius: 50%; margin-left: auto; box-shadow: 0 0 10px #79d99a66; }
-.logout-btn { margin-top: 12px; width: 100%; border: 0; background: transparent; color: #8e9b91; text-align: left; padding: 12px; font-size: 11px; }
-.logout-btn span { margin-right: 9px; font-size: 17px; }
-.main-area { width: calc(100% - 250px); max-width: 1600px; margin: 0 auto; padding: 38px 46px 25px; min-width: 0; }
-.page-heading { display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-bottom: 30px; }
-.page-heading h1 { margin: 8px 0 5px; font: 800 27px 'Manrope', sans-serif; letter-spacing: -.8px; }
-.page-heading p { color: var(--muted); font-size: 12px; margin: 0; }
-.user-chip { display: flex; align-items: center; gap: 9px; border: 1px solid var(--border); border-radius: 30px; padding: 7px 13px 7px 7px; color: #b8c5bc; font-size: 10px; max-width: 250px; overflow: hidden; }
-.user-chip > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-avatar { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 50%; background: #273d2d; color: #bce9c5; font-size: 16px; }
-.mobile-header { display: none; }
-.welcome-strip { background: linear-gradient(110deg, #17251b, #142019 62%, #1b2b20); border: 1px solid #304638; border-radius: 16px; padding: 25px 29px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 29px; overflow: hidden; position: relative; }
-.welcome-strip h2 { font: 700 20px 'Manrope', sans-serif; margin: 9px 0 5px; }
-.welcome-strip p { margin: 0; color: #9caea1; font-size: 11px; }
-.welcome-mark { font: 800 100px 'Manrope', sans-serif; line-height: 1; color: #b9edc51b; padding-right: 25px; }
-.section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 27px 0 14px; }
-.section-title-row h2 { font: 700 15px 'Manrope', sans-serif; margin: 0 0 4px; }
-.section-title-row p { color: var(--muted); font-size: 10px; margin: 0; }
-.period-pill, .count-pill { border: 1px solid #344239; border-radius: 30px; padding: 7px 11px; color: #a8c9ae; font-size: 9px; letter-spacing: 1px; }
-.stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; }
-.stat-card { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 18px; min-width: 0; }
-.stat-top { display: flex; justify-content: space-between; align-items: center; color: #98a49b; font-size: 10px; }
-.stat-symbol { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 9px; background: #202b24; color: #b6dfbf; font-size: 16px; }
-.stat-value { font: 700 19px 'Manrope', sans-serif; margin-top: 16px; letter-spacing: -.6px; overflow-wrap: anywhere; }
-.stat-detail { color: #77857b; font-size: 9px; margin-top: 6px; }
-.positive { color: var(--green) !important; }
-.negative { color: var(--red) !important; }
-.white-value { color: #edf4ee; }
-.dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 15px; margin-top: 18px; }
-.surface { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 21px; min-width: 0; }
-.surface-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 19px; }
-.surface-heading h3 { font: 700 13px 'Manrope', sans-serif; margin: 0 0 5px; }
-.surface-heading p { color: var(--muted); font-size: 10px; margin: 0; }
-.small-link { border: 0; background: transparent; color: #a9d9b4; font-size: 10px; white-space: nowrap; }
-.category-preview { display: flex; flex-direction: column; gap: 17px; }
-.category-line-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 10px; }
-.category-line-top strong { font-size: 10px; }
-.category-name { display: flex; align-items: center; gap: 8px; color: #cbd4cd; }
-.category-emoji { width: 29px; height: 29px; display: inline-grid; place-items: center; border-radius: 9px; background: #202a23; font-size: 15px; }
-.progress-track { height: 5px; background: #263029; border-radius: 20px; overflow: hidden; }
-.progress-fill { height: 100%; background: linear-gradient(90deg, #70c58b, #b2e6bd); border-radius: 20px; min-width: 2px; }
-.compact-list { display: flex; flex-direction: column; }
-.compact-row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #222d26; min-width: 0; }
-.compact-row:last-child { border-bottom: 0; }
-.compact-icon, .transaction-icon { flex: 0 0 auto; width: 36px; height: 36px; display: grid; place-items: center; background: #202b24; border-radius: 11px; font-size: 17px; }
-.compact-info { flex: 1; min-width: 0; }
-.compact-info strong, .compact-info span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.compact-info strong { font-size: 10px; color: #e0e8e1; }
-.compact-info span { font-size: 9px; color: #7f8d83; margin-top: 4px; }
-.compact-row > strong { font-size: 10px; white-space: nowrap; }
-.quick-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 15px; }
-.quick-action { display: flex; align-items: center; gap: 11px; text-align: left; padding: 14px; border: 1px solid var(--border); background: #111714; border-radius: 12px; color: var(--text); }
-.quick-action > span:nth-child(2) { flex: 1; }
-.quick-action strong, .quick-action small { display: block; }
-.quick-action strong { font-size: 10px; }
-.quick-action small { color: #819087; font-size: 9px; margin-top: 4px; }
-.quick-action b { color: #9fbaaa; font-weight: 400; }
-.quick-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; font-size: 17px; }
-.red-bg { background: #382323; color: #f19b9b; }
-.green-bg { background: #20372a; color: #9ce5b1; }
-.gold-bg { background: #373124; color: #e4cd91; }
-.month-filter { border: 1px solid #344238; background: #151d18; border-radius: 9px; color: #e1eae2; padding: 9px 11px; font-size: 11px; }
-.expense-total-card { display: flex; align-items: center; justify-content: space-between; padding: 25px 28px; border: 1px solid #473131; border-radius: 15px; background: linear-gradient(110deg, #241919, #171514); }
-.expense-total-value { font: 800 31px 'Manrope', sans-serif; color: #f0aaaa; margin: 9px 0 4px; }
-.expense-total-card p { margin: 0; font-size: 10px; color: #a88f8f; }
-.expense-total-icon { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 16px; background: #422727; color: #f2aaaa; font-size: 27px; }
-.compact-heading { margin-top: 27px; }
-.expense-category-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
-.expense-category-card { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 17px; min-width: 0; }
-.expense-category-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-.large-emoji { width: 40px; height: 40px; font-size: 20px; }
-.category-percent { font-size: 10px; color: #a6c9ad; }
-.expense-category-card > strong { font-size: 11px; display: block; }
-.expense-category-value { font: 700 16px 'Manrope', sans-serif; margin: 7px 0 13px; overflow-wrap: anywhere; }
-.category-hint { display: block; color: #77857b; font-size: 9px; margin-top: 7px; }
-.section-gap { margin-top: 17px; }
-.transaction-list { display: flex; flex-direction: column; }
-.transaction-row { display: flex; align-items: center; justify-content: space-between; gap: 13px; padding: 12px 0; border-bottom: 1px solid #253028; min-width: 0; }
-.transaction-row:last-child { border-bottom: 0; }
-.transaction-left { display: flex; align-items: center; gap: 11px; min-width: 0; }
-.transaction-left > div:last-child { min-width: 0; }
-.transaction-left strong, .transaction-left span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.transaction-left strong { font-size: 11px; }
-.transaction-left span { color: #819087; font-size: 9px; margin-top: 4px; }
-.transaction-row > strong { font-size: 11px; white-space: nowrap; }
-.transaction-actions { display: flex; align-items: center; gap: 10px; }
-.transaction-actions > strong { font-size: 10px; white-space: nowrap; }
-.icon-action { border: 1px solid #354139; color: #b5c5b8; background: #18211b; border-radius: 7px; width: 27px; height: 27px; font-size: 14px; }
-.danger-action { color: #e99b9b; }
-.toggle-tabs { display: flex; gap: 6px; background: #0e1310; border: 1px solid #273229; border-radius: 10px; padding: 4px; margin-bottom: 18px; }
-.toggle-tabs button { flex: 1; border: 0; border-radius: 7px; padding: 10px; color: #91a095; background: transparent; font-size: 10px; }
-.toggle-tabs button.active { background: #27342b; color: #d4e9d8; }
-.toggle-tabs button.expense-tab.active { background: #382626; color: #f0b1b1; }
-.toggle-tabs button.income-tab.active { background: #203a2a; color: #a7e4b6; }
-.filter-tabs { max-width: 360px; }
-.form-stack { display: flex; flex-direction: column; gap: 13px; }
-.field { display: flex; flex-direction: column; gap: 7px; }
-.field label { font-size: 10px; color: #a3b0a6; }
-.field input, .field select, .assistant-input input { width: 100%; border: 1px solid #303d34; border-radius: 9px; padding: 12px 13px; background: #0d130f; color: #e7eee8; outline: none; font-size: 11px; min-width: 0; }
-.field input:focus, .field select:focus, .assistant-input input:focus { border-color: #75b888; box-shadow: 0 0 0 2px #75b88818; }
-.primary-btn { border: 1px solid #a6e3b4; border-radius: 9px; background: #a6e3b4; color: #102016; padding: 12px 16px; font-weight: 700; font-size: 11px; transition: .2s; }
-.primary-btn:hover { background: #c1f0ca; }
-.secondary-btn { border: 1px solid #405248; border-radius: 9px; background: #1a251e; color: #c2ddc8; padding: 11px 15px; font-size: 11px; }
-.full { width: 100%; }
-.mini-stat { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 17px 0; border-bottom: 1px solid #28332b; font-size: 11px; color: #9ba89e; }
-.mini-stat strong { font: 700 14px 'Manrope', sans-serif; }
-.total-mini { color: #edf4ee; border: 0; padding-bottom: 0; }
-.bill-list { display: flex; flex-direction: column; gap: 15px; }
-.bill-row { display: flex; align-items: flex-start; gap: 11px; padding: 13px; border: 1px solid #2b372e; border-radius: 11px; background: #111814; }
-.bill-info { flex: 1; min-width: 0; }
-.bill-info > strong, .bill-info > span { display: block; }
-.bill-info > strong:first-child { font-size: 11px; }
-.bill-info > span { color: #849187; font-size: 9px; margin-top: 5px; }
-.bill-info em { display: inline-block; color: #f1a2a2; font-size: 8px; font-style: normal; margin-top: 5px; }
-.bill-amount { font: 700 14px 'Manrope', sans-serif; margin-top: 9px; }
-.bill-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
-.mini-primary, .mini-delete { border: 0; border-radius: 7px; padding: 8px 10px; font-size: 9px; }
-.mini-primary { background: #a6e3b4; color: #102016; font-weight: 700; }
-.mini-delete { color: #e9a0a0; background: #342323; }
-.footnote { color: #78877d; font-size: 9px; line-height: 1.6; margin: 17px 0 0; }
-.assistant-panel { max-width: 760px; margin: 20px auto; padding: 35px; border: 1px solid #2c3c30; background: radial-gradient(circle at 50% 0%, #203b29, #121916 55%); border-radius: 18px; text-align: center; }
-.assistant-orb { width: 58px; height: 58px; margin: 0 auto 18px; display: grid; place-items: center; background: #2a4933; border: 1px solid #577b5e; border-radius: 18px; color: #b9edc4; font-size: 30px; }
-.assistant-panel h2 { font: 800 23px 'Manrope', sans-serif; margin: 9px 0; }
-.assistant-panel > p { color: #99a99d; font-size: 11px; }
-.chatbubble { margin: 25px 0 15px; padding: 17px; background: #101713; border: 1px solid #2c3a30; border-radius: 12px; text-align: left; color: #d2dfd5; font-size: 11px; line-height: 1.7; }
-.assistant-input { display: flex; gap: 8px; }
-.assistant-input input { flex: 1; }
-.suggestion-row { display: flex; justify-content: center; flex-wrap: wrap; gap: 7px; margin-top: 15px; }
-.suggestion-row button { border: 1px solid #34463a; background: #18251c; color: #b9d4bf; border-radius: 30px; padding: 8px 11px; font-size: 9px; }
-.family-card { background: linear-gradient(120deg, #1b3022, #121a15); border: 1px solid #354b39; border-radius: 16px; padding: 29px; }
-.family-heart { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; background: #2b4531; color: #bce9c5; font-size: 26px; margin-bottom: 20px; }
-.family-card h2 { font: 800 23px 'Manrope', sans-serif; margin: 9px 0; }
-.family-card p, .muted-text { color: #a0ada3; font-size: 11px; line-height: 1.7; max-width: 560px; }
-.family-status { display: inline-flex; align-items: center; gap: 8px; margin-top: 13px; border: 1px solid #3d5b43; border-radius: 30px; padding: 8px 12px; color: #b9e7c2; font-size: 10px; }
-.profile-row { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-.profile-avatar { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 50%; background: #263d2c; color: #b9e7c2; }
-.profile-row strong, .profile-row span { display: block; }
-.profile-row strong { font-size: 11px; }
-.profile-row div span { color: #819087; font-size: 9px; margin-top: 4px; }
-.empty-state { padding: 27px 12px; text-align: center; color: #819087; font-size: 10px; border: 1px dashed #344238; border-radius: 10px; }
-.app-footer { display: flex; justify-content: space-between; gap: 10px; color: #637168; font-size: 9px; letter-spacing: .4px; padding: 30px 3px 5px; }
-.notice { background: #332d1d; border: 1px solid #665632; color: #f0dba6; border-radius: 9px; padding: 11px 13px; font-size: 10px; line-height: 1.5; margin-top: 12px; }
-.global-notice { display: flex; gap: 9px; align-items: center; margin-bottom: 18px; }
-.global-notice button { margin-left: auto; border: 0; background: transparent; color: #f0dba6; font-size: 17px; }
-.auth-screen { min-height: 100vh; display: grid; place-items: center; padding: 25px; background: radial-gradient(circle at 50% 0%, #1b3021, #0b0e0d 50%); }
-.auth-card { width: 100%; max-width: 420px; border: 1px solid #2d3c31; border-radius: 18px; padding: 32px; background: #121916; box-shadow: 0 25px 90px #0006; }
-.auth-intro { margin: 37px 0 25px; }
-.auth-intro h2 { font: 800 25px 'Manrope', sans-serif; margin: 9px 0; }
-.auth-intro p { color: #93a096; font-size: 11px; line-height: 1.7; }
-.text-btn { display: block; margin: 17px auto 0; border: 0; background: transparent; color: #a9dcb4; font-size: 10px; }
-.separator { display: flex; align-items: center; gap: 12px; color: #77857b; font-size: 8px; letter-spacing: 1px; margin: 22px 0; }
-.separator:before, .separator:after { content: ''; height: 1px; flex: 1; background: #2a352d; }
+  button,
+  input,
+  select {
+    font-family: inherit;
+  }
 
-@media (max-width: 1100px) {
-  .main-area { padding: 30px 25px; }
-  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .expense-category-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 760px) {
-  .app-shell { display: block; padding-bottom: 72px; }
-  .sidebar { display: none; }
-  .main-area { width: 100%; padding: 17px 15px 25px; }
-  .mobile-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 26px; }
-  .mobile-header .brandmark { width: 35px; height: 35px; font-size: 20px; }
-  .mobile-header .brand h1 { font-size: 13px; }
-  .mobile-header .brand p { font-size: 8px; }
-  .mobile-exit { border: 1px solid #354238; border-radius: 8px; background: #172019; color: #b8c8bb; padding: 8px 12px; font-size: 10px; }
-  .page-heading { margin-bottom: 22px; }
-  .page-heading h1 { font-size: 23px; }
-  .user-chip { display: none; }
-  .welcome-strip { padding: 20px; }
-  .welcome-strip h2 { font-size: 17px; }
-  .welcome-mark { font-size: 70px; padding-right: 0; }
-  .stats-grid { gap: 9px; }
-  .stat-card { padding: 13px; }
-  .stat-value { font-size: 16px; margin-top: 12px; }
-  .stat-detail { line-height: 1.5; }
-  .dashboard-grid { grid-template-columns: 1fr; gap: 11px; }
-  .surface { padding: 16px; }
-  .quick-actions { grid-template-columns: 1fr; }
-  .expense-category-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-  .expense-category-card { padding: 13px; }
-  .expense-category-value { font-size: 14px; }
-  .section-title-row { align-items: flex-end; }
-  .month-filter { max-width: 145px; }
-  .transaction-row { align-items: flex-start; }
-  .transaction-actions { flex-wrap: wrap; justify-content: flex-end; }
-  .transaction-actions > strong { width: 100%; text-align: right; }
-  .assistant-panel { padding: 22px 15px; }
-  .assistant-input { flex-direction: column; }
-  .assistant-input .primary-btn { width: 100%; }
-  .app-footer { flex-direction: column; text-align: center; }
-  .bills-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .auth-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+      radial-gradient(circle at top right, rgba(163, 230, 53, 0.35), transparent 45%),
+      radial-gradient(circle at bottom left, rgba(132, 204, 22, 0.22), transparent 50%),
+      #f8faf5;
+  }
 
-@media (max-width: 390px) {
-  .expense-category-grid { grid-template-columns: 1fr 1fr; }
-  .stat-value { font-size: 14px; }
-  .page-heading h1 { font-size: 21px; }
-}
+  .auth-card {
+    width: 100%;
+    max-width: 430px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 24px;
+    padding: 32px;
+    box-shadow: 0 20px 50px rgba(54, 83, 20, 0.1);
+  }
 
-/* ===== DR DIAS - VAULT DESIGN ===== */
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
 
-:root {
-  --bg: #090d0b;
-  --panel: #101713;
-  --panel-2: #17221b;
-  --border: #26372c;
-  --green: #a5edb7;
-  --green-dark: #1b3926;
-}
+  .brandmark {
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    font-weight: 900;
+    font-size: 19px;
+    color: #0f172a;
+    background: linear-gradient(135deg, var(--lime-vivid), var(--lime-primary));
+    box-shadow: 0 8px 20px var(--lime-glow);
+  }
 
-.main-area {
-  max-width: 1700px;
-  padding-top: 34px;
-}
+  .brand h1 {
+    margin: 0;
+    font-size: 17px;
+    letter-spacing: 0.08em;
+    font-weight: 800;
+    color: var(--ink-primary);
+  }
 
-.sidebar {
-  background: #0b100d;
-  border-right-color: #1c2920;
-}
+  .brand p {
+    margin: 2px 0 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--lime-dark);
+  }
 
-.brandmark {
-  background: linear-gradient(145deg, #c2f5cd, #79c990);
-  box-shadow: 0 5px 25px #80d99b25;
-}
+  .auth-intro {
+    margin: 24px 0 20px;
+  }
 
-.nav-item {
-  padding: 13px;
-  border-radius: 11px;
-  transition: background .2s, transform .2s;
-}
+  .eyebrow {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--lime-dark);
+  }
 
-.nav-item:hover {
-  transform: translateX(2px);
-}
+  .auth-intro h2 {
+    margin: 8px 0 6px;
+    font-size: 24px;
+    color: var(--ink-primary);
+  }
 
-.nav-item.selected {
-  background: linear-gradient(100deg, #1c3323, #17251b);
-  box-shadow: inset 2px 0 #a5edb7;
-}
+  .auth-intro p {
+    margin: 0;
+    color: var(--ink-muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
 
-.welcome-strip {
-  background:
-    radial-gradient(circle at 85% 20%, #315c3b55, transparent 35%),
-    linear-gradient(115deg, #17291d, #101a14);
-  border-color: #34523b;
-  padding: 30px;
-  min-height: 155px;
-}
+  .form-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
 
-.welcome-strip h2 {
-  font-size: 23px;
-  letter-spacing: -.7px;
-}
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
 
-.welcome-mark {
-  font-size: 115px;
-  color: #b9edc51a;
-}
+  .field label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink-secondary);
+  }
 
-.stat-card {
-  background: linear-gradient(145deg, #151e18, #0f1511);
-  border-color: #283a2e;
-  padding: 21px;
-  transition: border-color .2s, transform .2s;
-}
+  .field input,
+  .field select,
+  .month-filter,
+  .chat-form input {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid #d4dec6;
+    background: #ffffff;
+    color: var(--ink-primary);
+    font-size: 14px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
 
-.stat-card:hover,
-.surface:hover {
-  border-color: #405b46;
-}
+  .field input:focus,
+  .field select:focus,
+  .month-filter:focus,
+  .chat-form input:focus {
+    outline: none;
+    border-color: var(--lime-primary);
+    box-shadow: 0 0 0 3px var(--lime-glow);
+  }
 
-.stat-value {
-  font-size: 21px;
-  letter-spacing: -.8px;
-}
+  .primary-btn {
+    border: none;
+    border-radius: 12px;
+    padding: 13px 18px;
+    font-size: 14px;
+    font-weight: 800;
+    color: #0f172a;
+    background: linear-gradient(135deg, var(--lime-vivid), var(--lime-primary));
+    box-shadow: 0 8px 20px var(--lime-glow);
+    cursor: pointer;
+    transition: transform 0.12s ease, filter 0.15s ease;
+  }
 
-.stat-symbol {
-  background: #203728;
-  color: #b7efc3;
-}
+  .primary-btn:hover:not(:disabled) {
+    filter: brightness(1.04);
+    transform: translateY(-1px);
+  }
 
-.dashboard-grid {
-  gap: 17px;
-}
+  .primary-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
 
-.surface {
-  background: linear-gradient(145deg, #131b16, #101612);
-  border-color: #28382e;
-  border-radius: 16px;
-  transition: border-color .2s;
-}
+  .secondary-btn {
+    border: 1px solid var(--lime-primary);
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--lime-deep);
+    background: var(--bg-elevated);
+    cursor: pointer;
+  }
 
-.surface-heading {
-  margin-bottom: 22px;
-}
+  .secondary-btn.full {
+    width: 100%;
+  }
 
-.surface-heading h3 {
-  font-size: 14px;
-}
+  .text-btn {
+    margin-top: 14px;
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--lime-dark);
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+  }
 
-.category-emoji,
-.compact-icon,
-.transaction-icon {
-  background: #1c2b21;
-  border: 1px solid #2a4030;
-}
+  .separator {
+    margin: 20px 0 16px;
+    text-align: center;
+    position: relative;
+  }
 
-.progress-track {
-  background: #26332a;
-  height: 6px;
-}
+  .separator::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: var(--border-card);
+  }
 
-.progress-fill {
-  background: linear-gradient(90deg, #65bd7d, #b0efbd);
-  box-shadow: 0 0 12px #8de3a344;
-}
+  .separator span {
+    position: relative;
+    background: var(--bg-surface);
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--ink-muted);
+    letter-spacing: 0.08em;
+  }
 
-.quick-action {
-  background: linear-gradient(145deg, #151e18, #101612);
-  border-color: #2a3b30;
-  border-radius: 13px;
-  transition: .2s;
-}
+  .app-shell {
+    min-height: 100vh;
+    display: flex;
+    background: var(--bg-canvas);
+  }
 
-.quick-action:hover {
-  border-color: #6caa7b;
-  transform: translateY(-2px);
-}
+  .sidebar {
+    width: 268px;
+    flex-shrink: 0;
+    background: #ffffff;
+    border-right: 1px solid var(--border-subtle);
+    padding: 24px 18px;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
 
-.primary-btn {
-  background: linear-gradient(135deg, #b8efc4, #8ddba1);
-  border-color: #b8efc4;
-  box-shadow: 0 5px 18px #8cdda122;
-}
+  .sidebar-brand {
+    padding: 4px 8px 22px;
+    border-bottom: 1px solid var(--border-card);
+  }
 
-.primary-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 7px 22px #8cdda133;
-}
+  .nav-caption {
+    margin: 20px 10px 10px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: var(--ink-muted);
+  }
 
-.field input,
-.field select,
-.assistant-input input {
-  background: #0b110d;
-  border-color: #2b3d31;
-  border-radius: 10px;
-}
+  .navigation {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
 
-.expense-category-card {
-  background: linear-gradient(145deg, #151e18, #101612);
-  border-color: #293b2e;
-  border-radius: 15px;
-}
+  .nav-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 11px 14px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--ink-secondary);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
 
-.transaction-row {
-  padding: 15px 0;
-}
+  .nav-item:hover {
+    background: var(--bg-soft);
+    color: var(--ink-primary);
+  }
 
-.bill-row {
-  background: #121a15;
-  border-color: #2b3c30;
-  border-radius: 13px;
-}
+  .nav-item.selected {
+    background: var(--bg-elevated);
+    border-color: var(--lime-primary);
+    color: var(--lime-deep);
+    font-weight: 800;
+  }
 
-.page-heading h1 {
-  letter-spacing: -1px;
-}
+  .nav-icon {
+    font-size: 15px;
+    width: 18px;
+    text-align: center;
+  }
 
-.period-pill {
-  background: #18251c;
-}
+  .nav-indicator {
+    margin-left: auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--lime-primary);
+  }
 
-.app-footer {
-  border-top: 1px solid #1d2a21;
-  margin-top: 28px;
-  padding-top: 20px;
-}
+  .sidebar-bottom {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-card);
+  }
 
-@media (max-width: 760px) {
+  .wallet-mini {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .wallet-mini-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    background: var(--lime-vivid);
+    color: #0f172a;
+    font-weight: 800;
+  }
+
+  .wallet-mini strong {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-primary);
+  }
+
+  .wallet-mini span {
+    display: block;
+    font-size: 11px;
+    color: var(--ink-muted);
+  }
+
+  .online-dot {
+    margin-left: auto;
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: var(--lime-primary);
+    box-shadow: 0 0 0 3px var(--lime-glow);
+  }
+
+  .logout-btn {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    color: var(--ink-secondary);
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .logout-btn:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .main-area {
+    flex: 1;
+    min-width: 0;
+    padding: 32px 36px 56px;
+    max-width: 1260px;
+    margin: 0 auto;
+  }
+
+  .mobile-header,
+  .mobile-nav-strip {
+    display: none;
+  }
+
+  .page-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .page-heading h1 {
+    margin: 4px 0;
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
+  }
+
+  .page-heading p {
+    margin: 0;
+    color: var(--ink-muted);
+    font-size: 14px;
+  }
+
+  .user-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border-radius: 999px;
+    background: #ffffff;
+    border: 1px solid var(--border-subtle);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink-primary);
+  }
+
+  .user-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: var(--lime-vivid);
+    color: #0f172a;
+    font-size: 11px;
+    font-weight: 900;
+  }
+
   .welcome-strip {
-    min-height: 135px;
-    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 24px 28px;
+    border-radius: 22px;
+    background: linear-gradient(125deg, #ffffff 0%, #ecfccb 65%, #d9f99d 100%);
+    border: 1px solid var(--lime-primary);
+    margin-bottom: 28px;
   }
 
   .welcome-strip h2 {
-    font-size: 18px;
+    margin: 6px 0;
+    font-size: 23px;
+    font-weight: 800;
+    color: var(--ink-primary);
+  }
+
+  .welcome-strip p {
+    margin: 0;
+    color: var(--ink-secondary);
+    font-size: 14px;
   }
 
   .welcome-mark {
-    font-size: 75px;
+    width: 58px;
+    height: 58px;
+    border-radius: 18px;
+    display: grid;
+    place-items: center;
+    font-size: 26px;
+    font-weight: 900;
+    color: #0f172a;
+    background: var(--lime-vivid);
+    border: 2px solid var(--lime-dark);
+    flex-shrink: 0;
+  }
+
+  .section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .section-title-row.compact-heading {
+    margin-top: 24px;
+  }
+
+  .section-title-row h2 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 800;
+  }
+
+  .section-title-row p {
+    margin: 2px 0 0;
+    font-size: 13px;
+    color: var(--ink-muted);
+  }
+
+  .period-pill {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--lime-primary);
+    color: var(--lime-deep);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
   }
 
   .stat-card {
-    padding: 14px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-card);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.03);
   }
 
-/* DR DIAS - TEMA CLARO */
-:root {
-  --bg: #F5F7F5;
-  --panel: #FFFFFF;
-  --panel-2: #E8F1EA;
-  --border: #E5EAE6;
-  --text: #25382C;
-  --muted: #7A857D;
-  --green: #39865A;
-  --green-dark: #E8F1EA;
-  --red: #D45D5D;
-  --gold: #B99145;
-}
+  .stat-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink-muted);
+  }
 
-body {
-  background: var(--bg);
-  color: var(--text);
-}
+  .stat-symbol {
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+    display: grid;
+    place-items: center;
+    background: var(--bg-elevated);
+    color: var(--lime-dark);
+    font-weight: 800;
+  }
 
-.sidebar,
-.surface,
-.stat-card,
-.expense-category-card,
-.quick-action,
-.bill-row,
-.wallet-mini {
-  background: #FFFFFF;
-  border-color: var(--border);
-  color: var(--text);
-}
+  .stat-value {
+    margin: 12px 0 6px;
+    font-size: 23px;
+    font-weight: 900;
+    color: var(--ink-primary);
+  }
 
-.welcome-strip,
-.family-card,
-.assistant-panel {
-  background: var(--panel-2);
-  border-color: var(--border);
-  color: var(--text);
-}
+  .stat-detail {
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
 
-.welcome-strip p,
-.family-card p,
-.assistant-panel p {
-  color: var(--muted);
-}
+  .lime-value,
+  .positive {
+    color: var(--lime-dark);
+  }
 
-.primary-btn,
-.mini-primary {
-  background: var(--green);
-  border-color: var(--green);
-  color: #FFFFFF;
-}
+  .negative {
+    color: var(--danger);
+  }
 
-.secondary-btn,
-.icon-action,
-.mobile-exit {
-  background: var(--panel-2);
-  border-color: var(--border);
-  color: var(--green);
-}
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
 
-.field input,
-.field select,
-.assistant-input input {
-  background: #FFFFFF;
-  color: var(--text);
-  border-color: var(--border);
-}
+  .surface {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-card);
+    border-radius: 22px;
+    padding: 22px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.03);
+  }
 
-.small-link,
-.text-btn {
-  color: var(--green);
-}
+  .section-gap {
+    margin-top: 20px;
+  }
 
-.progress-track {
-  background: var(--border);
-}
+  .surface-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
 
-.progress-fill {
-  background: linear-gradient(90deg, #39865A, #8DBD9A);
-}
+  .surface-heading h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 800;
+  }
+
+  .surface-heading p {
+    margin: 3px 0 0;
+    font-size: 13px;
+    color: var(--ink-muted);
+  }
+
+  .small-link {
+    background: none;
+    border: none;
+    color: var(--lime-dark);
+    font-weight: 800;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .category-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .category-line-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: 14px;
+  }
+
+  .category-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+  }
+
+  .progress-track {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: #eef5e2;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--lime-primary), var(--lime-vivid));
+  }
+
+  .compact-list,
+  .transaction-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .compact-row,
+  .transaction-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: var(--bg-soft);
+    border: 1px solid #e7f0d8;
+  }
+
+  .compact-icon,
+  .transaction-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background: #ffffff;
+    border: 1px solid var(--border-subtle);
+    font-size: 17px;
+    flex-shrink: 0;
+  }
+
+  .compact-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .compact-info strong,
+  .transaction-left strong {
+    display: block;
+    font-size: 14px;
+    color: var(--ink-primary);
+  }
+
+  .compact-info span,
+  .transaction-left span {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
+
+  .transaction-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .transaction-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .icon-action {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    border: 1px solid #d4dec6;
+    background: #ffffff;
+    color: var(--ink-primary);
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .icon-action.danger-action:hover {
+    background: var(--danger-bg);
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .pay-btn {
+    padding: 7px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--lime-dark);
+    background: var(--lime-vivid);
+    color: #0f172a;
+    font-weight: 800;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .quick-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .quick-action {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: 18px;
+    background: #ffffff;
+    border: 1px solid var(--border-card);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.12s ease;
+  }
+
+  .quick-action:hover {
+    border-color: var(--lime-primary);
+    transform: translateY(-1px);
+  }
+
+  .quick-action strong {
+    display: block;
+    font-size: 14px;
+    color: var(--ink-primary);
+  }
+
+  .quick-action small {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
+
+  .quick-action b {
+    margin-left: auto;
+    color: var(--lime-dark);
+  }
+
+  .quick-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    font-weight: 900;
+    flex-shrink: 0;
+  }
+
+  .lime-bg {
+    background: var(--lime-vivid);
+    color: #0f172a;
+  }
+
+  .dark-lime-bg {
+    background: var(--bg-elevated);
+    color: var(--lime-deep);
+  }
+
+  .red-bg {
+    background: var(--danger-bg);
+    color: var(--danger);
+  }
+
+  .expense-total-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 24px 28px;
+    border-radius: 22px;
+    background: linear-gradient(120deg, #ffffff 0%, #ecfccb 100%);
+    border: 1px solid var(--lime-primary);
+  }
+
+  .expense-total-value {
+    font-size: 30px;
+    font-weight: 900;
+    margin: 6px 0;
+    color: var(--ink-primary);
+  }
+
+  .expense-total-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    display: grid;
+    place-items: center;
+    background: var(--lime-vivid);
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 900;
+  }
+
+  .expense-category-grid,
+  .history-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .expense-category-card,
+  .history-card {
+    background: #ffffff;
+    border: 1px solid var(--border-card);
+    border-radius: 18px;
+    padding: 18px;
+  }
+
+  .expense-category-top,
+  .history-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .large-emoji {
+    font-size: 22px;
+  }
+
+  .category-percent {
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--bg-elevated);
+    color: var(--lime-deep);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .expense-category-value {
+    font-size: 20px;
+    font-weight: 900;
+    margin: 8px 0 10px;
+  }
+
+  .category-hint {
+    display: block;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
+
+  .toggle-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 5px;
+    border-radius: 14px;
+    background: var(--bg-soft);
+  }
+
+  .toggle-tabs.filter-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .toggle-tabs button {
+    padding: 10px;
+    border-radius: 10px;
+    border: none;
+    background: transparent;
+    color: var(--ink-secondary);
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .toggle-tabs button.active {
+    background: #ffffff;
+    color: var(--ink-primary);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  }
+
+  .toggle-tabs button.income-tab.active {
+    background: var(--lime-vivid);
+    color: #0f172a;
+    font-weight: 800;
+  }
+
+  .toggle-tabs button.expense-tab.active {
+    background: var(--danger-bg);
+    color: var(--danger);
+    font-weight: 800;
+  }
+
+  .mini-stat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-card);
+    font-size: 14px;
+  }
+
+  .mini-stat.total-mini {
+    border-bottom: none;
+    padding-top: 14px;
+    font-size: 15px;
+  }
+
+  .chat-thread {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 360px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+  }
+
+  .chat-bubble {
+    padding: 14px 16px;
+    border-radius: 16px;
+    max-width: 82%;
+  }
+
+  .chat-bubble.ai-bubble {
+    background: var(--bg-elevated);
+    border: 1px solid var(--lime-primary);
+    align-self: flex-start;
+  }
+
+  .chat-bubble.user-bubble {
+    background: #0f172a;
+    color: #ffffff;
+    align-self: flex-end;
+  }
+
+  .chat-role {
+    display: block;
+    font-size: 11px;
+    font-weight: 800;
+    opacity: 0.75;
+    margin-bottom: 4px;
+  }
+
+  .chat-bubble p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  .chat-form {
+    display: flex;
+    gap: 10px;
+  }
+
+  .compact-btn {
+    white-space: nowrap;
+  }
+
+  .family-copy {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-secondary);
+  }
+
+  .code-text {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+  }
+
+  .empty-state {
+    padding: 28px 18px;
+    text-align: center;
+    color: var(--ink-muted);
+    font-size: 14px;
+    background: var(--bg-soft);
+    border-radius: 16px;
+    border: 1px dashed #cbd5e1;
+  }
+
+  .notice {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--lime-primary);
+    color: var(--lime-deep);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .global-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 20px;
+  }
+
+  .global-notice button {
+    margin-left: auto;
+    background: none;
+    border: none;
+    font-size: 18px;
+    font-weight: 800;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  @media (max-width: 1024px) {
+    .stats-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-grid,
+    .quick-actions,
+    .expense-category-grid,
+    .history-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 820px) {
+    .sidebar {
+      display: none;
+    }
+
+    .app-shell {
+      flex-direction: column;
+    }
+
+    .main-area {
+      padding: 16px 16px 40px;
+    }
+
+    .mobile-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .mobile-exit {
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border-subtle);
+      background: #ffffff;
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    .mobile-nav-strip {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 10px;
+      margin-bottom: 16px;
+    }
+
+    .mobile-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border-card);
+      background: #ffffff;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink-secondary);
+    }
+
+    .mobile-pill.active {
+      background: var(--lime-vivid);
+      border-color: var(--lime-dark);
+      color: #0f172a;
+      font-weight: 800;
+    }
+
+    .page-heading {
+      flex-direction: column;
+    }
+  }
 `;
