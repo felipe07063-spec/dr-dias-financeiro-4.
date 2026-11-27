@@ -42,7 +42,26 @@ type ViewId =
   | "bills"
   | "history"
   | "assistant"
-  | "family";
+  | "family"
+  | "settings";
+
+type AppSettings = {
+  walletDisplayName: string;
+  expenseLimit: number;
+  incomeTarget: number;
+  billAlertDays: number;
+  showAgentBanner: boolean;
+};
+
+const DEFAULT_SETTINGS: AppSettings = {
+  walletDisplayName: "Carteira familiar",
+  expenseLimit: 3000,
+  incomeTarget: 5000,
+  billAlertDays: 5,
+  showAgentBanner: true,
+};
+
+const STORAGE_KEY = "dr_dias_settings_v1";
 
 const money = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -66,6 +85,13 @@ const toLocalYearMonth = (isoDate: string): string => {
   const d = new Date(isoDate);
   if (Number.isNaN(d.getTime())) return isoDate.slice(0, 7);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const daysUntilDate = (yyyyMmDd: string): number => {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const target = new Date(`${yyyyMmDd}T00:00:00`).getTime();
+  return Math.round((target - startOfToday) / (1000 * 60 * 60 * 24));
 };
 
 const categories = [
@@ -112,6 +138,7 @@ const navItems: { id: ViewId; label: string; emoji: string }[] = [
   { id: "history", label: "Histórico mensal", emoji: "▦" },
   { id: "assistant", label: "Assistente IA", emoji: "✧" },
   { id: "family", label: "Família", emoji: "♡" },
+  { id: "settings", label: "Configurações", emoji: "⚙" },
 ];
 
 export default function Home() {
@@ -149,8 +176,58 @@ export default function Home() {
     },
   ]);
 
+  // Configurações salvas e inputs do formulário de configurações
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [walletNameInput, setWalletNameInput] = useState(DEFAULT_SETTINGS.walletDisplayName);
+  const [expenseLimitInput, setExpenseLimitInput] = useState("3.000,00");
+  const [incomeTargetInput, setIncomeTargetInput] = useState("5.000,00");
+  const [billAlertDaysInput, setBillAlertDaysInput] = useState("5");
+  const [showAgentBannerInput, setShowAgentBannerInput] = useState(true);
+
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<AppSettings>;
+      const merged: AppSettings = {
+        walletDisplayName:
+          typeof parsed.walletDisplayName === "string" && parsed.walletDisplayName.trim()
+            ? parsed.walletDisplayName.trim()
+            : DEFAULT_SETTINGS.walletDisplayName,
+        expenseLimit:
+          typeof parsed.expenseLimit === "number" && parsed.expenseLimit > 0
+            ? parsed.expenseLimit
+            : DEFAULT_SETTINGS.expenseLimit,
+        incomeTarget:
+          typeof parsed.incomeTarget === "number" && parsed.incomeTarget > 0
+            ? parsed.incomeTarget
+            : DEFAULT_SETTINGS.incomeTarget,
+        billAlertDays:
+          typeof parsed.billAlertDays === "number" && parsed.billAlertDays >= 0
+            ? parsed.billAlertDays
+            : DEFAULT_SETTINGS.billAlertDays,
+        showAgentBanner:
+          typeof parsed.showAgentBanner === "boolean"
+            ? parsed.showAgentBanner
+            : DEFAULT_SETTINGS.showAgentBanner,
+      };
+      setSettings(merged);
+      setWalletNameInput(merged.walletDisplayName);
+      setExpenseLimitInput(
+        merged.expenseLimit.toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+      );
+      setIncomeTargetInput(
+        merged.incomeTarget.toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+      );
+      setBillAlertDaysInput(String(merged.billAlertDays));
+      setShowAgentBannerInput(merged.showAgentBanner);
+    } catch {
+      // ignora erro de leitura local
+    }
+  }, []);
 
   useEffect(() => {
     if (!supabase) {
@@ -483,6 +560,99 @@ export default function Home() {
     }
   }
 
+  function handleSaveSettings(e: FormEvent) {
+    e.preventDefault();
+    const nextExpenseLimit = parseBRLAmount(expenseLimitInput);
+    const nextIncomeTarget = parseBRLAmount(incomeTargetInput);
+    const nextAlertDays = Number(billAlertDaysInput);
+
+    if (!Number.isFinite(nextExpenseLimit) || nextExpenseLimit <= 0) {
+      setNotice("Informe um limite mensal de despesas maior que zero.");
+      return;
+    }
+    if (!Number.isFinite(nextIncomeTarget) || nextIncomeTarget <= 0) {
+      setNotice("Informe uma meta mensal de receitas maior que zero.");
+      return;
+    }
+    if (!Number.isInteger(nextAlertDays) || nextAlertDays < 0 || nextAlertDays > 60) {
+      setNotice("Os dias de alerta antecipado devem estar entre 0 e 60.");
+      return;
+    }
+
+    const cleanName = walletNameInput.trim() || DEFAULT_SETTINGS.walletDisplayName;
+    const nextSettings: AppSettings = {
+      walletDisplayName: cleanName,
+      expenseLimit: nextExpenseLimit,
+      incomeTarget: nextIncomeTarget,
+      billAlertDays: nextAlertDays,
+      showAgentBanner: showAgentBannerInput,
+    };
+
+    setSettings(nextSettings);
+    setWalletNameInput(cleanName);
+    setExpenseLimitInput(
+      nextExpenseLimit.toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+    );
+    setIncomeTargetInput(
+      nextIncomeTarget.toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+    );
+
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSettings));
+    } catch {
+      // ignora erro de armazenamento
+    }
+
+    setNotice("Configurações salvas e aplicadas em todo o sistema!");
+  }
+
+  function handleResetSettings() {
+    setSettings(DEFAULT_SETTINGS);
+    setWalletNameInput(DEFAULT_SETTINGS.walletDisplayName);
+    setExpenseLimitInput(
+      DEFAULT_SETTINGS.expenseLimit.toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+    );
+    setIncomeTargetInput(
+      DEFAULT_SETTINGS.incomeTarget.toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+    );
+    setBillAlertDaysInput(String(DEFAULT_SETTINGS.billAlertDays));
+    setShowAgentBannerInput(DEFAULT_SETTINGS.showAgentBanner);
+
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignora erro de armazenamento
+    }
+
+    setNotice("Configurações restauradas para os valores padrão.");
+  }
+
+  function exportTransactionsCSV() {
+    if (transactions.length === 0) {
+      setNotice("Não há lançamentos para exportar.");
+      return;
+    }
+
+    const header = "Data;Tipo;Categoria;Descricao;Valor";
+    const rows = transactions.map((t) => {
+      const dateStr = new Date(t.created_at).toLocaleDateString("pt-BR");
+      const kindStr = t.kind === "income" ? "Receita" : "Despesa";
+      const safeDesc = `"${t.description.replace(/"/g, '""')}"`;
+      const amountStr = Number(t.amount).toFixed(2).replace(".", ",");
+      return `${dateStr};${kindStr};${t.category};${safeDesc};${amountStr}`;
+    });
+
+    const csvContent = "\uFEFF" + [header, ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `dr-dias-lancamentos-${today()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setNotice("Arquivo CSV exportado com sucesso!");
+  }
+
   const totals = useMemo(
     () =>
       transactions.reduce(
@@ -499,6 +669,24 @@ export default function Home() {
   const visible = useMemo(
     () => transactions.filter((t) => filter === "all" || t.kind === filter),
     [transactions, filter]
+  );
+
+  const currentMonthTransactions = useMemo(
+    () => transactions.filter((t) => toLocalYearMonth(t.created_at) === monthNow),
+    [transactions]
+  );
+
+  const currentMonthTotals = useMemo(
+    () =>
+      currentMonthTransactions.reduce(
+        (acc, t) => {
+          if (t.kind === "income") acc.income += Number(t.amount);
+          else acc.expense += Number(t.amount);
+          return acc;
+        },
+        { income: 0, expense: 0 }
+      ),
+    [currentMonthTransactions]
   );
 
   const monthTransactions = useMemo(
@@ -551,6 +739,70 @@ export default function Home() {
     [pendingBills]
   );
 
+  const agentBanner = useMemo(() => {
+    const overdueBills = pendingBills.filter((b) => daysUntilDate(b.due_date) < 0);
+    const dueSoonBills = pendingBills.filter((b) => {
+      const diff = daysUntilDate(b.due_date);
+      return diff >= 0 && diff <= settings.billAlertDays;
+    });
+
+    if (currentMonthTotals.expense > settings.expenseLimit) {
+      return {
+        tone: "alert" as const,
+        badge: "AGENTE · LIMITE ULTRAPASSADO",
+        text: `Você gastou ${money(currentMonthTotals.expense)} neste mês — acima do seu teto de ${money(
+          settings.expenseLimit
+        )}.`,
+      };
+    }
+
+    if (overdueBills.length > 0) {
+      return {
+        tone: "alert" as const,
+        badge: "AGENTE · CONTA VENCIDA",
+        text: `Atenção: há ${overdueBills.length} conta(s) vencida(s) em aberto, começando por "${overdueBills[0].description}".`,
+      };
+    }
+
+    if (currentMonthTotals.expense > currentMonthTotals.income && currentMonthTotals.expense > 0) {
+      return {
+        tone: "alert" as const,
+        badge: "AGENTE · ATENÇÃO AO FLUXO",
+        text: `As despesas do mês (${money(
+          currentMonthTotals.expense
+        )}) já superaram as receitas (${money(currentMonthTotals.income)}).`,
+      };
+    }
+
+    if (currentMonthTotals.income >= settings.incomeTarget && currentMonthTotals.income > 0) {
+      return {
+        tone: "positive" as const,
+        badge: "AGENTE · META ATINGIDA",
+        text: `Sua receita do mês (${money(
+          currentMonthTotals.income
+        )}) superou a meta de ${money(settings.incomeTarget)}. Excelente ritmo!`,
+      };
+    }
+
+    if (dueSoonBills.length > 0) {
+      return {
+        tone: "info" as const,
+        badge: "AGENTE · VENCIMENTO PRÓXIMO",
+        text: `${dueSoonBills.length} conta(s) vence(m) nos próximos ${settings.billAlertDays} dia(s): "${
+          dueSoonBills[0].description
+        }" (${money(Number(dueSoonBills[0].amount))}).`,
+      };
+    }
+
+    return {
+      tone: "positive" as const,
+      badge: "AGENTE · PAINEL SAUDÁVEL",
+      text: `Mês dentro dos parâmetros: ${money(currentMonthTotals.income)} de entradas e ${money(
+        currentMonthTotals.expense
+      )} de saídas (teto ${money(settings.expenseLimit)}).`,
+    };
+  }, [currentMonthTotals, pendingBills, settings]);
+
   function handleAssistantSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = message.trim();
@@ -564,8 +816,8 @@ export default function Home() {
         totals.income
       )}, despesas de ${money(totals.expense)} e saldo líquido de ${money(
         totals.income - totals.expense
-      )}. Há ${pendingBills.length} conta(s) futura(s) pendente(s) somando ${money(
-        pendingTotal
+      )}. No mês atual, você usou ${money(currentMonthTotals.expense)} do limite de ${money(
+        settings.expenseLimit
       )}.`;
     } else if (
       q.includes("econom") ||
@@ -584,7 +836,9 @@ export default function Home() {
       reply = biggest
         ? `O maior centro de custo acumulado é "${biggest[0]}" com ${money(
             biggest[1]
-          )}. Definir um teto mensal nessa categoria traz o maior impacto rápido.`
+          )}. Ajustar essa categoria ajuda a manter seus gastos abaixo de ${money(
+            settings.expenseLimit
+          )}.`
         : "Ainda não há despesas suficientes registradas para sugerir cortes.";
     } else if (q.includes("conta") || q.includes("futura") || q.includes("vencer")) {
       reply =
@@ -597,7 +851,7 @@ export default function Home() {
           : "Não há contas futuras pendentes no momento.";
     } else {
       reply =
-        "Posso apresentar o resumo de receitas/despesas, calcular o saldo líquido, analisar contas futuras ou apontar a categoria com maior gasto.";
+        "Posso apresentar o resumo de receitas/despesas, comparar seus gastos com o limite configurado, analisar contas futuras ou apontar a categoria com maior gasto.";
     }
 
     setChatHistory((prev) => [
@@ -617,11 +871,38 @@ export default function Home() {
   function Header({ title, subtitle }: { title: string; subtitle: string }) {
     return (
       <div className="page-heading">
-        <div>
+        <div className="heading-main">
           <div className="eyebrow">DR DIAS · EMERALD EXECUTIVE</div>
           <h1>{title}</h1>
           <p>{subtitle}</p>
         </div>
+
+        {activeView === "home" && settings.showAgentBanner && (
+          <div className={`agent-banner agent-${agentBanner.tone}`}>
+            <div className="agent-banner-top">
+              <span className="agent-badge">✦ {agentBanner.badge}</span>
+              <div className="agent-actions">
+                <button
+                  type="button"
+                  className="agent-link"
+                  onClick={() => setActiveView("settings")}
+                >
+                  Configurar
+                </button>
+                <span>·</span>
+                <button
+                  type="button"
+                  className="agent-link"
+                  onClick={() => setActiveView("assistant")}
+                >
+                  IA →
+                </button>
+              </div>
+            </div>
+            <p>{agentBanner.text}</p>
+          </div>
+        )}
+
         <div className="user-chip">
           <span className="user-avatar">✦</span>
           <span>{sessionUser?.email || "Minha família"}</span>
@@ -789,6 +1070,7 @@ export default function Home() {
   }
 
   const netBalance = totals.income - totals.expense;
+  const activeWalletTitle = walletMeta?.name || settings.walletDisplayName;
 
   return (
     <main className="app-shell">
@@ -824,7 +1106,7 @@ export default function Home() {
           <div className="wallet-mini">
             <div className="wallet-mini-icon">♡</div>
             <div>
-              <strong>{walletMeta?.name || "Carteira familiar"}</strong>
+              <strong>{activeWalletTitle}</strong>
               <span>Ativa · Tempo real</span>
             </div>
             <span className="online-dot" />
@@ -894,7 +1176,7 @@ export default function Home() {
 
             <section className="welcome-strip">
               <div>
-                <span className="eyebrow">CARTEIRA COMPARTILHADA</span>
+                <span className="eyebrow">{activeWalletTitle.toUpperCase()}</span>
                 <h2>Alta clareza, execução rápida.</h2>
                 <p>Acompanhe entradas, saídas, compromissos futuros e saldo líquido em um só lugar.</p>
               </div>
@@ -920,14 +1202,14 @@ export default function Home() {
               <StatCard
                 label="Receitas"
                 value={money(totals.income)}
-                detail="Entradas confirmadas"
+                detail={`Meta mensal: ${money(settings.incomeTarget)}`}
                 tone="positive"
                 symbol="↗"
               />
               <StatCard
                 label="Despesas"
                 value={money(totals.expense)}
-                detail="Saídas registradas"
+                detail={`Teto mensal: ${money(settings.expenseLimit)}`}
                 tone="negative"
                 symbol="↘"
               />
@@ -1088,7 +1370,10 @@ export default function Home() {
               <div>
                 <span className="eyebrow">TOTAL DE DESPESAS · {monthLabel.toUpperCase()}</span>
                 <div className="expense-total-value">{money(monthTotals.expense)}</div>
-                <p>{monthExpenses.length} despesa(s) registrada(s) neste período</p>
+                <p>
+                  {monthExpenses.length} despesa(s) · Teto configurado:{" "}
+                  {money(settings.expenseLimit)}
+                </p>
               </div>
               <div className="expense-total-icon">↘</div>
             </div>
@@ -1634,6 +1919,142 @@ export default function Home() {
             </div>
           </>
         )}
+
+        {activeView === "settings" && (
+          <>
+            <Header
+              title="Configurações"
+              subtitle="Personalize os alertas do agente, metas mensais e preferências do painel."
+            />
+
+            <div className="dashboard-grid">
+              <div className="surface">
+                <div className="surface-heading">
+                  <div>
+                    <h3>Regras do agente e metas</h3>
+                    <p>Defina os parâmetros que alimentam os alertas da visão geral</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSaveSettings} className="form-stack">
+                  <div className="field">
+                    <label>Nome exibido da carteira</label>
+                    <input
+                      required
+                      value={walletNameInput}
+                      onChange={(e) => setWalletNameInput(e.target.value)}
+                      placeholder="Ex.: Família Dias"
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label>Limite mensal de despesas (R$)</label>
+                    <input
+                      required
+                      inputMode="decimal"
+                      value={expenseLimitInput}
+                      onChange={(e) => setExpenseLimitInput(e.target.value)}
+                      placeholder="3.000,00"
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label>Meta mensal de receitas (R$)</label>
+                    <input
+                      required
+                      inputMode="decimal"
+                      value={incomeTargetInput}
+                      onChange={(e) => setIncomeTargetInput(e.target.value)}
+                      placeholder="5.000,00"
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label>Avisar contas futuras com antecedência de (dias)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={60}
+                      required
+                      value={billAlertDaysInput}
+                      onChange={(e) => setBillAlertDaysInput(e.target.value)}
+                    />
+                  </div>
+
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={showAgentBannerInput}
+                      onChange={(e) => setShowAgentBannerInput(e.target.checked)}
+                    />
+                    <span>Exibir banner inteligente do agente no topo da Visão Geral</span>
+                  </label>
+
+                  <div className="settings-btn-row">
+                    <button type="submit" className="primary-btn">
+                      ✓ Salvar configurações
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      onClick={handleResetSettings}
+                    >
+                      Restaurar padrão
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div className="surface">
+                <div className="surface-heading">
+                  <div>
+                    <h3>Resumo ativo e exportação</h3>
+                    <p>Parâmetros em vigor e ferramentas de backup</p>
+                  </div>
+                </div>
+
+                <div className="mini-stat">
+                  <span>Carteira exibida</span>
+                  <strong>{activeWalletTitle}</strong>
+                </div>
+                <div className="mini-stat">
+                  <span>Teto de gastos do mês</span>
+                  <strong className="negative">{money(settings.expenseLimit)}</strong>
+                </div>
+                <div className="mini-stat">
+                  <span>Meta de receita do mês</span>
+                  <strong className="positive">{money(settings.incomeTarget)}</strong>
+                </div>
+                <div className="mini-stat">
+                  <span>Antecedência de vencimento</span>
+                  <strong>{settings.billAlertDays} dia(s)</strong>
+                </div>
+                <div className="mini-stat total-mini">
+                  <span>Gasto atual no mês</span>
+                  <strong
+                    className={
+                      currentMonthTotals.expense > settings.expenseLimit
+                        ? "negative"
+                        : "emerald-value"
+                    }
+                  >
+                    {money(currentMonthTotals.expense)}
+                  </strong>
+                </div>
+
+                <div className="settings-tools">
+                  <button
+                    type="button"
+                    className="secondary-btn full"
+                    onClick={exportTransactionsCSV}
+                  >
+                    ↓ Exportar lançamentos (CSV / Excel)
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </section>
 
       <style jsx global>{styles}</style>
@@ -1805,6 +2226,36 @@ const styles = `
     outline: none;
     border-color: var(--emerald-primary);
     box-shadow: 0 0 0 3px var(--emerald-glow);
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-card);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-secondary);
+    cursor: pointer;
+  }
+
+  .checkbox-row input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--emerald-primary);
+  }
+
+  .settings-btn-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .settings-tools {
+    margin-top: 18px;
   }
 
   .primary-btn {
@@ -2047,10 +2498,14 @@ const styles = `
 
   .page-heading {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 16px;
     margin-bottom: 24px;
+  }
+
+  .heading-main {
+    flex-shrink: 0;
   }
 
   .page-heading h1 {
@@ -2067,6 +2522,77 @@ const styles = `
     font-size: 14px;
   }
 
+  .agent-banner {
+    flex: 1;
+    min-width: 240px;
+    max-width: 520px;
+    padding: 12px 16px;
+    border-radius: 16px;
+    border: 1px solid var(--border-emerald);
+    background: linear-gradient(135deg, #ffffff 0%, var(--bg-emerald-soft) 100%);
+    box-shadow: 0 6px 18px rgba(16, 185, 129, 0.08);
+  }
+
+  .agent-banner.agent-alert {
+    border-color: #fca5a5;
+    background: linear-gradient(135deg, #ffffff 0%, #fef2f2 100%);
+    box-shadow: 0 6px 18px rgba(220, 38, 38, 0.08);
+  }
+
+  .agent-banner.agent-info {
+    border-color: #99f6e4;
+    background: linear-gradient(135deg, #ffffff 0%, var(--bg-mint-soft) 100%);
+  }
+
+  .agent-banner-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .agent-badge {
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    color: var(--emerald-deep);
+  }
+
+  .agent-banner.agent-alert .agent-badge {
+    color: var(--danger);
+  }
+
+  .agent-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--ink-muted);
+  }
+
+  .agent-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--emerald-dark);
+    cursor: pointer;
+  }
+
+  .agent-banner.agent-alert .agent-link {
+    color: var(--danger);
+  }
+
+  .agent-banner p {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.4;
+    font-weight: 600;
+    color: var(--ink-primary);
+  }
+
   .user-chip {
     display: inline-flex;
     align-items: center;
@@ -2078,6 +2604,7 @@ const styles = `
     font-size: 13px;
     font-weight: 700;
     color: var(--ink-primary);
+    flex-shrink: 0;
   }
 
   .user-avatar {
@@ -2702,6 +3229,18 @@ const styles = `
     cursor: pointer;
   }
 
+  @media (max-width: 1180px) {
+    .page-heading {
+      flex-wrap: wrap;
+    }
+
+    .agent-banner {
+      order: 3;
+      max-width: 100%;
+      width: 100%;
+    }
+  }
+
   @media (max-width: 1024px) {
     .stats-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2775,6 +3314,7 @@ const styles = `
 
     .page-heading {
       flex-direction: column;
+      align-items: stretch;
     }
   }
 `;
